@@ -11,7 +11,11 @@
 
 This fork adds T-Embed CC1101 dual boot with Bruce. See [DUAL_BOOT.md](DUAL_BOOT.md)
 for its build, flashing, and update instructions.
-The upstream web flasher linked below installs upstream firmware, not this fork.
+The fork's [web flasher](https://kab7.github.io/Flipper-Zero-ESP32-Port/) and
+[preview release](https://github.com/kab7/Flipper-Zero-ESP32-Port/releases/tag/v2.0.0-dualboot.1)
+are **only for the 16 MB LilyGO T-Embed CC1101**. The upstream web flasher
+installs a different, single-app layout; do not use it to update this dual boot.
+The fork's CI and release do not build Waveshare or generic ESP32 boards.
 
 A port of the [Flipper Zero](https://flipperzero.one/) firmware to ESP32-based development boards. This project brings the Flipper Zero UI, services, and application framework to affordable ESP32 hardware — no Flipper Zero required.
 
@@ -39,13 +43,24 @@ Join the [Flipper Zero meets ESP32 - Discord](https://discord.gg/5DnAqFXaBC) for
 
 ## How to Flash
 
-The easiest way is the **web flasher** — no toolchain required, just a Chrome/Edge browser and a USB cable:
+For this fork's LilyGO dual boot, use the **fork web flasher** — no toolchain
+required, just a Chrome/Edge browser and a USB cable:
 
-**[Flash via Browser](https://sor3nt.github.io/interface.html)**
+**[Flash Flipper + Bruce via Browser](https://kab7.github.io/Flipper-Zero-ESP32-Port/)**
 
-Connect your board, click flash, done. After flashing, copy the contents of [sdcard.zip](https://github.com/Sor3nt/Flipper-Zero-ESP32-Port/releases/latest/download/sdcard.zip) onto a FAT32 SD card and insert it — most apps need files there to function.
+Connect your T-Embed CC1101, select the USB serial port, and confirm the
+installation. After flashing, copy the contents of the official
+[sdcard.zip](https://github.com/Sor3nt/Flipper-Zero-ESP32-Port/releases/download/v2.0.0/sdcard.zip)
+onto a FAT32 SD card and insert it — most apps need files there to function.
+For manual flashing, download the ZIP from the
+[preview release](https://github.com/kab7/Flipper-Zero-ESP32-Port/releases/tag/v2.0.0-dualboot.1)
+and follow `INSTALL.txt` inside it.
 
 ## Firmware Update
+
+**This fork's dual-boot build must be updated over USB.** Normal WiFi/USB OTA
+updates are disabled to avoid overwriting Bruce. The instructions below apply
+to the original upstream partition layout, not this fork.
 
 Since **v2.0.0** the T-Embed can update itself — no PC toolchain or re-flashing required:
 

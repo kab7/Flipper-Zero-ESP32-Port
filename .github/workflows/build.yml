@@ -144,3 +144,37 @@ jobs:
           name: bruce-lilygo-t-embed-cc1101-app
           path: multi-boot/bruce/.pio/build/lilygo-t-embed-cc1101/firmware.bin
           retention-days: 30
+
+  package-dualboot:
+    name: Package LilyGO dual-boot release
+    needs: [build, build-bruce]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Download Flipper image
+        uses: actions/download-artifact@v8
+        with:
+          name: flipper-lilygo-t-embed-cc1101
+          path: input/flipper
+
+      - name: Download Bruce image
+        uses: actions/download-artifact@v8
+        with:
+          name: bruce-lilygo-t-embed-cc1101-app
+          path: input/bruce
+
+      - name: Validate and package dual boot
+        run: |
+          python3 tools/package_dualboot_release.py \
+            --flipper input/flipper \
+            --bruce input/bruce/firmware.bin \
+            --output release
+
+      - name: Upload release files
+        uses: actions/upload-artifact@v7
+        with:
+          name: lilygo-t-embed-cc1101-dualboot-release
+          path: release/
+          retention-days: 30

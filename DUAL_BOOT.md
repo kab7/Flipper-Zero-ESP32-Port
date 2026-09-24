@@ -19,7 +19,22 @@ inactive target is Bruce. The firmware refuses such a write before erasing the
 slot. To update either firmware, rebuild and flash over USB. Do not use the
 upstream full-flash package: it has a different partition table.
 
-## Build and flash
+## Flash a ready-made build
+
+The [fork's web flasher](https://kab7.github.io/Flipper-Zero-ESP32-Port/) is
+for the **16 MB LilyGO T-Embed CC1101 only**. Open it in Chrome or Edge on a
+computer, connect the board over USB, select its serial port, and confirm the
+full dual-boot install. The page writes the bootloader, partition table,
+Flipper, Bruce, and an empty `otadata` selector so Flipper starts first. It
+does not erase the entire flash: NVS and the Bruce filesystem are preserved.
+
+The [preview release](https://github.com/kab7/Flipper-Zero-ESP32-Port/releases/tag/v2.0.0-dualboot.1)
+also has each binary, a ZIP with all required files and command-line flashing
+instructions, and SHA-256 checksums. If the web flasher cannot connect, put
+the board into download mode with its BOOT button and retry. The fork is not
+yet verified on physical hardware; keep a copy of your existing data.
+
+## Build and flash from source
 
 Install ESP-IDF v5.4.1 and PlatformIO, then run:
 
