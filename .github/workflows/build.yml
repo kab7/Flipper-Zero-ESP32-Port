@@ -140,3 +140,29 @@ jobs:
           # Users unzip and immediately run flash_linux.sh or flash_windows.bat.
           path: artifact_staging/
           retention-days: 30
+
+  build-bruce:
+    name: Build Bruce for T-Embed CC1101
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Build pinned Bruce dual-boot image
+        run: |
+          set -euo pipefail
+          python3 -m venv /tmp/bruce-pio
+          /tmp/bruce-pio/bin/python -m pip install platformio==6.2.0
+          python3 tools/prepare_bruce.py
+          PATH="/tmp/bruce-pio/bin:$PATH" /tmp/bruce-pio/bin/pio run -d multi-boot/bruce -e lilygo-t-embed-cc1101
+          image="multi-boot/bruce/.pio/build/lilygo-t-embed-cc1101/firmware.bin"
+          test -s "$image"
+          test "$(stat -c%s "$image")" -le $((0x5F0000))
+
+      - name: Upload Bruce app image
+        uses: actions/upload-artifact@v7
+        with:
+          name: bruce-lilygo-t-embed-cc1101-app
+          path: multi-boot/bruce/.pio/build/lilygo-t-embed-cc1101/firmware.bin
+          retention-days: 30
