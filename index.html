@@ -205,9 +205,8 @@
             align-items: center;
             justify-content: center;
             margin: 0;
-            height: 100vh;
-            margin: 0;
-            overflow: hidden;
+            padding: 24px 0;
+            overflow-x: hidden;
             background: black;
         }
 
@@ -215,7 +214,7 @@
             text-align: center;
             max-width: 480px;
             width: 100%;
-            padding: 40px 24px;
+            padding: 24px 24px 16px;
         }
         h1 {
             font-size: 2.2rem;
@@ -462,12 +461,16 @@
             font-weight: 500;
             opacity: 0.7;
         }
-        /* Discord button */
+        .release-link a {
+            color: #ff9f2e;
+            font-size: 0.9rem;
+        }
+        .release-link a:hover { color: #ffc273; }
+
+        /* Source link */
         .discord-btn {
-            position: fixed;
-            left: 50%;
-            bottom: 70px;
-            transform: translateX(-50%);
+            display: inline-block;
+            margin: 0 auto 24px;
             background: #ff8c00;
             color: #000;
             font-size: 0.9rem;
@@ -481,7 +484,7 @@
 
         .discord-btn:hover {
             background: #ff9f2e;
-            transform: translateX(-50%) scale(1.05);
+            transform: scale(1.05);
         }
 
         /* background element*/
@@ -557,7 +560,7 @@
             <p>Этот дуалбут пока не проверен на реальной плате. Прошивка заменит оба приложения и таблицу разделов, но не стирает всю память: NVS и файлы Bruce сохраняются. После установки первым загрузится Flipper.</p>
             <p>Не устанавливайте обычное OTA-обновление Flipper поверх этого дуалбута.</p>
         </div>
-        <p><a href="https://github.com/kab7/Flipper-Zero-ESP32-Port/releases/tag/v2.0.0-dualboot.1">Скачать файлы и контрольные суммы</a></p>
+        <p class="release-link"><a href="https://github.com/kab7/Flipper-Zero-ESP32-Port/releases/tag/v2.0.0-dualboot.1">Скачать файлы и контрольные суммы</a></p>
     </div>
 
     <div id="screen-flash" class="screen">
