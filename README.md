@@ -9,6 +9,10 @@
 
 # Flipper Zero ESP32 Port
 
+This fork adds T-Embed CC1101 dual boot with Bruce. See [DUAL_BOOT.md](DUAL_BOOT.md)
+for its build, flashing, and update instructions.
+The upstream web flasher linked below installs upstream firmware, not this fork.
+
 A port of the [Flipper Zero](https://flipperzero.one/) firmware to ESP32-based development boards. This project brings the Flipper Zero UI, services, and application framework to affordable ESP32 hardware — no Flipper Zero required.
 
 ## Discord

@@ -33,7 +33,8 @@ void furi_hal_info_init(void) {
         strncpy(s_ota_partition, running->label, sizeof(s_ota_partition) - 1);
         s_ota_partition[sizeof(s_ota_partition) - 1] = '\0';
     }
-    s_ota_supported = esp_ota_get_next_update_partition(NULL) ? "true" : "false";
+    const esp_partition_t* next = esp_ota_get_next_update_partition(NULL);
+    s_ota_supported = (next && strcmp(next->label, "bruce") != 0) ? "true" : "false";
 
     const esp_app_desc_t* app_desc = esp_app_get_description();
     if(app_desc) {

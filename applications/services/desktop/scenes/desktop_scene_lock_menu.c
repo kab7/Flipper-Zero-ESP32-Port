@@ -3,6 +3,9 @@
 
 #include <btshim.h>
 #include <wifi.h>
+#include <esp_partition.h>
+#include <esp_ota_ops.h>
+#include <esp_app_desc.h>
 
 #include "../desktop_i.h"
 #include "../views/desktop_view_lock_menu.h"
@@ -48,6 +51,14 @@ static bool desktop_lock_menu_wifi_enabled(void) {
     return enabled;
 }
 
+static const esp_partition_t* desktop_lock_menu_bruce_partition(void) {
+    const esp_partition_t* partition = esp_partition_find_first(
+        ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_1, "bruce");
+    if(!partition) return NULL;
+    esp_app_desc_t description;
+    return esp_ota_get_partition_description(partition, &description) == ESP_OK ? partition : NULL;
+}
+
 /* Rebuild the menu from the live toggle states (used on enter and after a
  * toggle, so the Enable/Disable labels track reality). */
 void desktop_scene_lock_menu_refresh(Desktop* desktop) {
@@ -56,7 +67,8 @@ void desktop_scene_lock_menu_refresh(Desktop* desktop) {
         LOCK_MENU_USB_AVAILABLE,
         qflipper_bridge_is_active(),
         desktop_lock_menu_bt_enabled(),
-        desktop_lock_menu_wifi_enabled());
+        desktop_lock_menu_wifi_enabled(),
+        desktop_lock_menu_bruce_partition() != NULL);
 }
 
 void desktop_scene_lock_menu_on_enter(void* context) {
@@ -144,6 +156,22 @@ bool desktop_scene_lock_menu_on_event(void* context, SceneManagerEvent event) {
             loader_start_detached_with_gui_error(desktop->loader, "wlan", "webfs");
             consumed = true;
             break;
+
+        case DesktopLockMenuEventBruce: {
+            const esp_partition_t* bruce = desktop_lock_menu_bruce_partition();
+            if(!bruce) {
+                FURI_LOG_E("DesktopBruce", "Bruce image is missing or invalid");
+            } else {
+                esp_err_t result = esp_ota_set_boot_partition(bruce);
+                if(result == ESP_OK) {
+                    furi_hal_power_reset();
+                } else {
+                    FURI_LOG_E("DesktopBruce", "Cannot boot Bruce: %s", esp_err_to_name(result));
+                }
+            }
+            consumed = true;
+            break;
+        }
 
         default:
             break;
