@@ -164,7 +164,8 @@
                 await new Promise(r => setTimeout(r, 100));
                 await transport.setRTS(false);
                 await new Promise(r => setTimeout(r, 100));
-                await transport.disconnect();
+                // Native USB may disappear during reset; the flash itself succeeded.
+                try { await transport.disconnect(); } catch (_) {}
 
                 showScreen('screen-success');
 
