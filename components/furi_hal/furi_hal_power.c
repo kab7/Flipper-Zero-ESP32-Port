@@ -647,25 +647,26 @@ static void furi_hal_power_enter_deep_sleep(void) {
         "Deep sleep: wake_config=%s BOOT_level=%ld",
         esp_err_to_name(wake_err),
         (long)power_shutdown_rtc_diag.report.button_level);
-    /* Keep the T-Embed peripheral rail and backlight OFF while digital GPIOs
-     * are otherwise isolated. PowerSrv's stack is now allocated in internal
-     * RAM, which ESP-IDF requires when deep-sleep GPIO isolation runs. */
+    /* GPIO15 and GPIO21 are RTC IOs on the ESP32-S3. Hold only these pads LOW
+     * through deep sleep so the peripheral rail and backlight stay off.
+     * Enabling the global digital-GPIO deep-sleep hold instead triggers GPIO
+     * isolation of every other pad and regressed the working v2.0 sleep path
+     * into an immediate reboot on the T-Embed. RTC pad hold does not need it. */
 #if SOC_GPIO_SUPPORT_HOLD_IO_IN_DSLP && !SOC_GPIO_SUPPORT_HOLD_SINGLE_IO_IN_DSLP
     gpio_deep_sleep_hold_dis();
 #if defined(BOARD_PIN_PWR_EN)
-    esp_err_t hold_err = gpio_hold_en((gpio_num_t)BOARD_PIN_PWR_EN);
+    esp_err_t hold_err = rtc_gpio_hold_en((gpio_num_t)BOARD_PIN_PWR_EN);
     if(hold_err != ESP_OK) {
         ESP_LOGW(TAG, "PWR_EN hold failed: %s", esp_err_to_name(hold_err));
     }
 #if defined(BOARD_PIN_LCD_BL)
     if(BOARD_PIN_LCD_BL < GPIO_NUM_MAX) {
-        hold_err = gpio_hold_en((gpio_num_t)BOARD_PIN_LCD_BL);
+        hold_err = rtc_gpio_hold_en((gpio_num_t)BOARD_PIN_LCD_BL);
         if(hold_err != ESP_OK) {
             ESP_LOGW(TAG, "LCD_BL hold failed: %s", esp_err_to_name(hold_err));
         }
     }
 #endif
-    gpio_deep_sleep_hold_en();
 #endif
 #endif
     power_shutdown_rtc_diag.report.stage = FuriHalPowerShutdownStageEnteringDeepSleep;
