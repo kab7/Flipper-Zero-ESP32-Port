@@ -634,6 +634,16 @@ static void furi_hal_power_prepare_shutdown(void) {
 /* Enter ESP32 deep sleep, waking on the BOOT/encoder button. The RTC domain
  * stays powered (~µA draw); this is not a true power cut. Does not return. */
 static void furi_hal_power_enter_deep_sleep(void) {
+    /* Auto light-sleep uses the same RTC wake timer as deep sleep. Freeze the
+     * PM idle path before clearing that source, so another task cannot arm it
+     * again while we finish shutting down. This extra lock acquisition stays
+     * held even if InputSrv toggles its ordinary screen-off sleep gate. */
+#if CONFIG_PM_ENABLE
+    if(furi_hal_power_no_ls_lock) {
+        esp_pm_lock_acquire(furi_hal_power_no_ls_lock);
+    }
+#endif
+
     /* Wake on the BOOT/encoder button (GPIO0, active low). Keep an RTC-domain
      * pull-up as well as the board's boot-strapping pull-up so EXT0 has a
      * defined HIGH level throughout deep sleep. */
@@ -658,10 +668,9 @@ static void furi_hal_power_enter_deep_sleep(void) {
         esp_err_to_name(wake_err),
         (long)power_shutdown_rtc_diag.report.button_level);
     /* GPIO15 and GPIO21 are RTC IOs on the ESP32-S3. Hold only these pads LOW
-     * through deep sleep so the peripheral rail and backlight stay off.
-     * Enabling the global digital-GPIO deep-sleep hold instead triggers GPIO
-     * isolation of every other pad and regressed the working v2.0 sleep path
-     * into an immediate reboot on the T-Embed. RTC pad hold does not need it. */
+     * through deep sleep so the peripheral rail and backlight stay off. The
+     * global digital-GPIO hold also isolates every unrelated pad; it is not
+     * required for RTC pad hold. */
 #if SOC_GPIO_SUPPORT_HOLD_IO_IN_DSLP && !SOC_GPIO_SUPPORT_HOLD_SINGLE_IO_IN_DSLP
     gpio_deep_sleep_hold_dis();
 #if defined(BOARD_PIN_PWR_EN)
@@ -679,6 +688,14 @@ static void furi_hal_power_enter_deep_sleep(void) {
 #endif
 #endif
 #endif
+    /* esp_pm_configure(light_sleep_enable=true) arms the RTC timer with zero
+     * delay, and automatic light-sleep keeps reusing it. Without explicitly
+     * removing that wake source, deep sleep succeeds but immediately wakes by
+     * TIMER instead of waiting for the BOOT/encoder button. */
+    esp_err_t timer_err = esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
+    if(timer_err != ESP_OK && timer_err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(TAG, "Disable timer wake failed: %s", esp_err_to_name(timer_err));
+    }
     power_shutdown_rtc_diag.report.stage = FuriHalPowerShutdownStageEnteringDeepSleep;
     esp_deep_sleep_start();
 }
