@@ -11,7 +11,7 @@ power-off changes. Bruce is pinned to official release `1.16.1`.
 - NVS and PHY keep the offsets used by upstream v2.0; Bruce's LittleFS gets a
   `spiffs` partition at `0xC20000`.
 - In Flipper, open the desktop lock menu and choose **Switch to Bruce**. The
-  entry appears only when the Bruce image is valid. In Bruce, choose
+  entry appears when a Bruce app descriptor is present. In Bruce, choose
   **Flipper Zero → Reboot to Flipper** from its main menu.
 
 Normal WiFi/USB OTA firmware updates are disabled in this layout because their
@@ -28,11 +28,11 @@ full dual-boot install. The page writes the bootloader, partition table,
 Flipper, Bruce, and an empty `otadata` selector so Flipper starts first. It
 does not erase the entire flash: NVS and the Bruce filesystem are preserved.
 
-The [preview release](https://github.com/kab7/Flipper-Zero-ESP32-Port/releases/tag/v2.0.0-dualboot.1)
+The [preview release](https://github.com/kab7/Flipper-Zero-ESP32-Port/releases/tag/v2.0.0-dualboot.2)
 also has each binary, a ZIP with all required files and command-line flashing
 instructions, and SHA-256 checksums. If the web flasher cannot connect, put
 the board into download mode with its BOOT button and retry. The fork is not
-yet verified on physical hardware; keep a copy of your existing data.
+still undergoing physical dual-boot testing; keep a copy of your existing data.
 
 ## Build and flash from source
 

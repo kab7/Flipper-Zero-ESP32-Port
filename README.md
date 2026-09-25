@@ -12,7 +12,7 @@
 This fork adds T-Embed CC1101 dual boot with Bruce. See [DUAL_BOOT.md](DUAL_BOOT.md)
 for its build, flashing, and update instructions.
 The fork's [web flasher](https://kab7.github.io/Flipper-Zero-ESP32-Port/) and
-[preview release](https://github.com/kab7/Flipper-Zero-ESP32-Port/releases/tag/v2.0.0-dualboot.1)
+[preview release](https://github.com/kab7/Flipper-Zero-ESP32-Port/releases/tag/v2.0.0-dualboot.2)
 are **only for the 16 MB LilyGO T-Embed CC1101**. The upstream web flasher
 installs a different, single-app layout; do not use it to update this dual boot.
 The fork's CI and release do not build Waveshare or generic ESP32 boards.
@@ -53,7 +53,7 @@ installation. After flashing, copy the contents of the official
 [sdcard.zip](https://github.com/Sor3nt/Flipper-Zero-ESP32-Port/releases/download/v2.0.0/sdcard.zip)
 onto a FAT32 SD card and insert it — most apps need files there to function.
 For manual flashing, download the ZIP from the
-[preview release](https://github.com/kab7/Flipper-Zero-ESP32-Port/releases/tag/v2.0.0-dualboot.1)
+[preview release](https://github.com/kab7/Flipper-Zero-ESP32-Port/releases/tag/v2.0.0-dualboot.2)
 and follow `INSTALL.txt` inside it.
 
 ## Firmware Update
