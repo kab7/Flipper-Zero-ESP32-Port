@@ -34,14 +34,15 @@
 
 #define TAG "FuriHalPower"
 
-#define POWER_SHUTDOWN_DIAG_MAGIC (0x50445752u) /* PDWR */
+#define POWER_SHUTDOWN_DIAG_MAGIC (0x50445732u) /* PDW2: first-boot record */
 
-/* RTC no-init memory survives a reset/deep-sleep wake, but not a true battery
- * cut. Clear it on every boot so power diag reports only the immediately
- * preceding shutdown attempt. */
+/* Retain the first boot following a shutdown attempt across later USB/JTAG
+ * resets. Opening the ESP32-S3 native USB serial port itself can reset the
+ * chip, otherwise hiding the actual deep-sleep wake or panic we need to see. */
 typedef struct {
     uint32_t magic;
     uint32_t magic_inverse;
+    bool first_boot_recorded;
     FuriHalPowerShutdownDiagnostics report;
 } FuriHalPowerRtcDiagnostics;
 
@@ -50,20 +51,28 @@ static FuriHalPowerShutdownDiagnostics power_shutdown_boot_diag;
 
 static void furi_hal_power_shutdown_diag_init(void) {
     memset(&power_shutdown_boot_diag, 0, sizeof(power_shutdown_boot_diag));
+    uint32_t current_reset_reason = (uint32_t)esp_reset_reason();
+    uint32_t current_wakeup_cause = (uint32_t)esp_sleep_get_wakeup_cause();
     if(power_shutdown_rtc_diag.magic == POWER_SHUTDOWN_DIAG_MAGIC &&
        power_shutdown_rtc_diag.magic_inverse == ~POWER_SHUTDOWN_DIAG_MAGIC) {
+        if(!power_shutdown_rtc_diag.first_boot_recorded) {
+            power_shutdown_rtc_diag.report.reset_reason = current_reset_reason;
+            power_shutdown_rtc_diag.report.wakeup_cause = current_wakeup_cause;
+            power_shutdown_rtc_diag.first_boot_recorded = true;
+        }
         power_shutdown_boot_diag = power_shutdown_rtc_diag.report;
+    } else {
+        power_shutdown_boot_diag.reset_reason = current_reset_reason;
+        power_shutdown_boot_diag.wakeup_cause = current_wakeup_cause;
     }
-    power_shutdown_rtc_diag.magic = 0;
-    power_shutdown_rtc_diag.magic_inverse = 0;
-    power_shutdown_boot_diag.reset_reason = (uint32_t)esp_reset_reason();
-    power_shutdown_boot_diag.wakeup_cause = (uint32_t)esp_sleep_get_wakeup_cause();
 
     ESP_LOGW(
         TAG,
-        "Boot diag: reset=%lu wake=%lu previous=%d mode=%lu stage=%lu button=%ld charger=%ld vbus=%ld ship=%ld wake_err=%ld",
+        "Boot diag: first_reset=%lu first_wake=%lu current_reset=%lu current_wake=%lu previous=%d mode=%lu stage=%lu button=%ld charger=%ld vbus=%ld ship=%ld wake_err=%ld",
         (unsigned long)power_shutdown_boot_diag.reset_reason,
         (unsigned long)power_shutdown_boot_diag.wakeup_cause,
+        (unsigned long)current_reset_reason,
+        (unsigned long)current_wakeup_cause,
         power_shutdown_boot_diag.has_previous_attempt,
         (unsigned long)power_shutdown_boot_diag.mode,
         (unsigned long)power_shutdown_boot_diag.stage,
@@ -81,6 +90,7 @@ void furi_hal_power_get_shutdown_diagnostics(FuriHalPowerShutdownDiagnostics* ou
 
 static void furi_hal_power_shutdown_diag_begin(FuriHalPowerShutdownMode mode) {
     memset(&power_shutdown_rtc_diag.report, 0, sizeof(power_shutdown_rtc_diag.report));
+    power_shutdown_rtc_diag.first_boot_recorded = false;
     power_shutdown_rtc_diag.report.has_previous_attempt = true;
     power_shutdown_rtc_diag.report.mode = mode;
     power_shutdown_rtc_diag.report.stage = FuriHalPowerShutdownStageRequested;
