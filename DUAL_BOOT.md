@@ -31,8 +31,10 @@ does not erase the entire flash: NVS and the Bruce filesystem are preserved.
 The [preview release](https://github.com/kab7/Flipper-Zero-ESP32-Port/releases/tag/v2.0.0-dualboot.2)
 also has each binary, a ZIP with all required files and command-line flashing
 instructions, and SHA-256 checksums. If the web flasher cannot connect, put
-the board into download mode with its BOOT button and retry. The fork is not
-still undergoing physical dual-boot testing; keep a copy of your existing data.
+the board into download mode with its BOOT button and retry. Switching from the
+updated Flipper to an already installed Bruce and back has been confirmed on one
+physical T-Embed. The full `.2` bundle has not yet been tested on hardware;
+keep a copy of your existing data.
 
 ## Build and flash from source
 
@@ -58,6 +60,6 @@ ship mode. **Deep Sleep** remains available and uses the ESP32 sleep state.
 To compare with the previous 20%-per-day loss, record battery percentage,
 voltage, and remaining mAh before and after 24 hours in each mode.
 
-The source changes have not yet been verified on a physical T-Embed. In ship
+The power-mode changes have not yet been verified on a physical T-Embed. In ship
 mode, a USB connection may be required to wake the board if its button is not
 wired to the charger's `/QON` input.

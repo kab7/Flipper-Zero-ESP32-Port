@@ -80,7 +80,7 @@ esptool --chip esp32s3 --port PORT --baud 460800 write_flash \\
 Replace PORT with your serial port. Do not use the upstream single-app flasher
 or normal OTA update with this dual-boot layout. This command preserves NVS and
 the Bruce filesystem, but resets the active boot slot so Flipper starts first.
-The release has not yet been tested on a physical T-Embed CC1101.
+The full dual-boot bundle has not yet been tested on a physical T-Embed CC1101.
 """
     (output / "INSTALL.txt").write_text(install)
     bundle = output / "lilygo-t-embed-cc1101-dualboot.zip"
