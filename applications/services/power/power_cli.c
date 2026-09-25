@@ -6,6 +6,85 @@
 #include <lib/toolbox/args.h>
 #include <power/power_service/power.h>
 #include <toolbox/pipe.h>
+#include <esp_err.h>
+#include <esp_system.h>
+#include <esp_sleep.h>
+
+static const char* power_cli_reset_name(uint32_t reason) {
+    switch(reason) {
+    case ESP_RST_POWERON: return "power-on";
+    case ESP_RST_SW: return "software";
+    case ESP_RST_PANIC: return "panic";
+    case ESP_RST_INT_WDT: return "interrupt watchdog";
+    case ESP_RST_TASK_WDT: return "task watchdog";
+    case ESP_RST_WDT: return "watchdog";
+    case ESP_RST_DEEPSLEEP: return "deep-sleep wake";
+    case ESP_RST_BROWNOUT: return "brownout";
+    default: return "other";
+    }
+}
+
+static const char* power_cli_wake_name(uint32_t cause) {
+    switch(cause) {
+    case ESP_SLEEP_WAKEUP_UNDEFINED: return "none";
+    case ESP_SLEEP_WAKEUP_EXT0: return "EXT0 button";
+    case ESP_SLEEP_WAKEUP_EXT1: return "EXT1";
+    case ESP_SLEEP_WAKEUP_TIMER: return "timer";
+    case ESP_SLEEP_WAKEUP_GPIO: return "GPIO";
+    default: return "other";
+    }
+}
+
+static const char* power_cli_shutdown_mode_name(FuriHalPowerShutdownMode mode) {
+    switch(mode) {
+    case FuriHalPowerShutdownModeDeepSleep: return "Deep Sleep";
+    case FuriHalPowerShutdownModePowerOff: return "Power Off";
+    default: return "none";
+    }
+}
+
+static const char* power_cli_shutdown_stage_name(FuriHalPowerShutdownStage stage) {
+    switch(stage) {
+    case FuriHalPowerShutdownStageRequested: return "requested";
+    case FuriHalPowerShutdownStagePrepared: return "display/peripherals off";
+    case FuriHalPowerShutdownStageChargerCheck: return "charger checked";
+    case FuriHalPowerShutdownStageShipCommand: return "ship command started";
+    case FuriHalPowerShutdownStageShipReturned: return "ship command returned";
+    case FuriHalPowerShutdownStageWakeConfigured: return "wake source configured";
+    case FuriHalPowerShutdownStageEnteringDeepSleep: return "entering deep sleep";
+    default: return "none";
+    }
+}
+
+static void power_cli_diag(void) {
+    FuriHalPowerShutdownDiagnostics diag;
+    furi_hal_power_get_shutdown_diagnostics(&diag);
+    printf(
+        "Boot: reset=%lu (%s), wake=%lu (%s)\r\n",
+        (unsigned long)diag.reset_reason,
+        power_cli_reset_name(diag.reset_reason),
+        (unsigned long)diag.wakeup_cause,
+        power_cli_wake_name(diag.wakeup_cause));
+    if(!diag.has_previous_attempt) {
+        printf("No shutdown attempt recorded before this boot.\r\n");
+        return;
+    }
+
+    printf(
+        "Previous shutdown: mode=%s, last stage=%s\r\n",
+        power_cli_shutdown_mode_name(diag.mode),
+        power_cli_shutdown_stage_name(diag.stage));
+    printf(
+        "BOOT level=%ld, charger=%ld, USB VBUS=%ld, ship I2C=%ld\r\n",
+        (long)diag.button_level,
+        (long)diag.charger_present,
+        (long)diag.vbus_present,
+        (long)diag.ship_write_ok);
+    if(diag.wake_config_error >= 0) {
+        printf("Wake configuration: %s\r\n", esp_err_to_name(diag.wake_config_error));
+    }
+    printf("(-1 means the step was not reached.)\r\n");
+}
 
 void power_cli_off(PipeSide* pipe, FuriString* args) {
     UNUSED(pipe);
@@ -61,6 +140,7 @@ static void power_cli_command_print_usage(void) {
     printf("Cmd list:\r\n");
 
     printf("\toff\t - shutdown power\r\n");
+    printf("\tdiag\t - show last shutdown and wake reason\r\n");
     printf("\treboot\t - reboot\r\n");
     printf("\treboot2dfu\t - reboot to dfu bootloader\r\n");
     printf("\t5v <0 or 1>\t - enable or disable 5v ext\r\n");
@@ -82,6 +162,11 @@ void power_cli(PipeSide* pipe, FuriString* args, void* context) {
 
         if(furi_string_cmp_str(cmd, "off") == 0) {
             power_cli_off(pipe, args);
+            break;
+        }
+
+        if(furi_string_cmp_str(cmd, "diag") == 0) {
+            power_cli_diag();
             break;
         }
 

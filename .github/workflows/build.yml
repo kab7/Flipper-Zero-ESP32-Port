@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main, master]
   workflow_dispatch:
+    inputs:
+      build_bruce:
+        description: Build the Bruce image too (not needed for Flipper-only tests)
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -120,6 +125,7 @@ jobs:
           retention-days: 30
 
   build-bruce:
+    if: github.event_name != 'workflow_dispatch' || inputs.build_bruce
     name: Build Bruce for T-Embed CC1101
     runs-on: ubuntu-24.04
     timeout-minutes: 60

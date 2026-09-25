@@ -6,6 +6,7 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 #include <esp_adc/adc_cali.h>
 #include <esp_adc/adc_cali_scheme.h>
@@ -19,6 +20,7 @@
 #include <soc/soc_caps.h>
 #include <driver/i2c.h>
 #include <esp_system.h>
+#include <esp_attr.h>
 #include <esp_timer.h>
 #include <driver/gpio.h>
 
@@ -30,6 +32,66 @@
 #include "furi_hal_resources.h"
 
 #define TAG "FuriHalPower"
+
+#define POWER_SHUTDOWN_DIAG_MAGIC (0x50445752u) /* PDWR */
+
+/* RTC no-init memory survives a reset/deep-sleep wake, but not a true battery
+ * cut. Clear it on every boot so power diag reports only the immediately
+ * preceding shutdown attempt. */
+typedef struct {
+    uint32_t magic;
+    uint32_t magic_inverse;
+    FuriHalPowerShutdownDiagnostics report;
+} FuriHalPowerRtcDiagnostics;
+
+static RTC_NOINIT_ATTR FuriHalPowerRtcDiagnostics power_shutdown_rtc_diag;
+static FuriHalPowerShutdownDiagnostics power_shutdown_boot_diag;
+
+static void furi_hal_power_shutdown_diag_init(void) {
+    memset(&power_shutdown_boot_diag, 0, sizeof(power_shutdown_boot_diag));
+    if(power_shutdown_rtc_diag.magic == POWER_SHUTDOWN_DIAG_MAGIC &&
+       power_shutdown_rtc_diag.magic_inverse == ~POWER_SHUTDOWN_DIAG_MAGIC) {
+        power_shutdown_boot_diag = power_shutdown_rtc_diag.report;
+    }
+    power_shutdown_rtc_diag.magic = 0;
+    power_shutdown_rtc_diag.magic_inverse = 0;
+    power_shutdown_boot_diag.reset_reason = (uint32_t)esp_reset_reason();
+    power_shutdown_boot_diag.wakeup_cause = (uint32_t)esp_sleep_get_wakeup_cause();
+
+    ESP_LOGW(
+        TAG,
+        "Boot diag: reset=%lu wake=%lu previous=%d mode=%lu stage=%lu button=%ld charger=%ld vbus=%ld ship=%ld wake_err=%ld",
+        (unsigned long)power_shutdown_boot_diag.reset_reason,
+        (unsigned long)power_shutdown_boot_diag.wakeup_cause,
+        power_shutdown_boot_diag.has_previous_attempt,
+        (unsigned long)power_shutdown_boot_diag.mode,
+        (unsigned long)power_shutdown_boot_diag.stage,
+        (long)power_shutdown_boot_diag.button_level,
+        (long)power_shutdown_boot_diag.charger_present,
+        (long)power_shutdown_boot_diag.vbus_present,
+        (long)power_shutdown_boot_diag.ship_write_ok,
+        (long)power_shutdown_boot_diag.wake_config_error);
+}
+
+void furi_hal_power_get_shutdown_diagnostics(FuriHalPowerShutdownDiagnostics* out) {
+    furi_check(out);
+    *out = power_shutdown_boot_diag;
+}
+
+static void furi_hal_power_shutdown_diag_begin(FuriHalPowerShutdownMode mode) {
+    memset(&power_shutdown_rtc_diag.report, 0, sizeof(power_shutdown_rtc_diag.report));
+    power_shutdown_rtc_diag.report.has_previous_attempt = true;
+    power_shutdown_rtc_diag.report.mode = mode;
+    power_shutdown_rtc_diag.report.stage = FuriHalPowerShutdownStageRequested;
+    power_shutdown_rtc_diag.report.button_level = -1;
+    power_shutdown_rtc_diag.report.charger_present = -1;
+    power_shutdown_rtc_diag.report.vbus_present = -1;
+    power_shutdown_rtc_diag.report.ship_write_ok = -1;
+    power_shutdown_rtc_diag.report.wake_config_error = -1;
+    power_shutdown_rtc_diag.magic_inverse = ~POWER_SHUTDOWN_DIAG_MAGIC;
+    power_shutdown_rtc_diag.magic = POWER_SHUTDOWN_DIAG_MAGIC;
+    ESP_LOGW(TAG, "Shutdown requested: mode=%lu", (unsigned long)mode);
+}
 
 #if CONFIG_PM_ENABLE
 /* Held whenever insomnia > 0. Pins the CPU at max frequency so timing-critical
@@ -323,6 +385,7 @@ static float furi_hal_power_get_estimated_battery_voltage(void) {
 }
 
 void furi_hal_power_init(void) {
+    furi_hal_power_shutdown_diag_init();
     furi_hal_power_ensure_initialized();
 
 #if CONFIG_PM_ENABLE
@@ -554,6 +617,7 @@ static void furi_hal_power_prepare_shutdown(void) {
 #ifdef BOARD_PIN_PWR_EN
     gpio_set_level((gpio_num_t)BOARD_PIN_PWR_EN, 0);
 #endif
+    power_shutdown_rtc_diag.report.stage = FuriHalPowerShutdownStagePrepared;
 }
 
 /* Enter ESP32 deep sleep, waking on the BOOT/encoder button. The RTC domain
@@ -573,10 +637,20 @@ static void furi_hal_power_enter_deep_sleep(void) {
      * re-wake immediately — unlike the side key (GPIO6), which floats LOW and
      * rebooted the device instantly (regression from the multi-boot PR). */
 #if SOC_PM_SUPPORT_EXT0_WAKEUP
-    esp_sleep_enable_ext0_wakeup((gpio_num_t)BOARD_PIN_BUTTON_BOOT, 0);
+    esp_err_t wake_err = esp_sleep_enable_ext0_wakeup((gpio_num_t)BOARD_PIN_BUTTON_BOOT, 0);
 #else
-    esp_deep_sleep_enable_gpio_wakeup(BIT(BOARD_PIN_BUTTON_BOOT), ESP_GPIO_WAKEUP_GPIO_LOW);
+    esp_err_t wake_err = esp_deep_sleep_enable_gpio_wakeup(
+        BIT(BOARD_PIN_BUTTON_BOOT), ESP_GPIO_WAKEUP_GPIO_LOW);
 #endif
+    power_shutdown_rtc_diag.report.wake_config_error = wake_err;
+    power_shutdown_rtc_diag.report.button_level =
+        gpio_get_level((gpio_num_t)BOARD_PIN_BUTTON_BOOT);
+    power_shutdown_rtc_diag.report.stage = FuriHalPowerShutdownStageWakeConfigured;
+    ESP_LOGW(
+        TAG,
+        "Deep sleep: wake_config=%s BOOT_level=%ld",
+        esp_err_to_name(wake_err),
+        (long)power_shutdown_rtc_diag.report.button_level);
     /* Clear the deep-sleep GPIO auto-hold bit. It lives in the RTC domain
      * (RTC_CNTL_DIG_ISO_REG) and SURVIVES resets/panics, so a firmware that once
      * called gpio_deep_sleep_hold_en() leaves it set for every later boot. While
@@ -595,11 +669,13 @@ static void furi_hal_power_enter_deep_sleep(void) {
 #if SOC_GPIO_SUPPORT_HOLD_IO_IN_DSLP && !SOC_GPIO_SUPPORT_HOLD_SINGLE_IO_IN_DSLP
     gpio_deep_sleep_hold_dis();
 #endif
+    power_shutdown_rtc_diag.report.stage = FuriHalPowerShutdownStageEnteringDeepSleep;
     esp_deep_sleep_start();
 }
 
 /* Deep-sleep power-off (default mode). */
 void furi_hal_power_shutdown(void) {
+    furi_hal_power_shutdown_diag_begin(FuriHalPowerShutdownModeDeepSleep);
     furi_hal_power_prepare_shutdown();
     furi_hal_power_enter_deep_sleep();
 }
@@ -610,12 +686,27 @@ void furi_hal_power_shutdown(void) {
  * charger keeps SYS powered, so we fall back to deep sleep. If there is no
  * charger at all (or the write fails) we also fall back to deep sleep. */
 void furi_hal_power_off(void) {
+    furi_hal_power_shutdown_diag_begin(FuriHalPowerShutdownModePowerOff);
     furi_hal_power_prepare_shutdown();
 
-    if(furi_hal_bq25896_is_present() && !furi_hal_bq25896_is_vbus_present()) {
-        furi_hal_bq25896_poweroff();
-        /* BATFET cut is near-instant; give it a moment. Should not return. */
-        vTaskDelay(pdMS_TO_TICKS(500));
+    bool charger_present = furi_hal_bq25896_is_present();
+    power_shutdown_rtc_diag.report.charger_present = charger_present;
+    power_shutdown_rtc_diag.report.stage = FuriHalPowerShutdownStageChargerCheck;
+    if(charger_present) {
+        bool vbus_present = furi_hal_bq25896_is_vbus_present();
+        power_shutdown_rtc_diag.report.vbus_present = vbus_present;
+        ESP_LOGW(TAG, "Power off: charger=1 VBUS=%d", vbus_present);
+        if(!vbus_present) {
+            power_shutdown_rtc_diag.report.stage = FuriHalPowerShutdownStageShipCommand;
+            bool ship_write_ok = furi_hal_bq25896_poweroff();
+            power_shutdown_rtc_diag.report.ship_write_ok = ship_write_ok;
+            power_shutdown_rtc_diag.report.stage = FuriHalPowerShutdownStageShipReturned;
+            ESP_LOGW(TAG, "Ship command returned: I2C_ok=%d", ship_write_ok);
+            /* BATFET cut is near-instant; give it a moment. Should not return. */
+            vTaskDelay(pdMS_TO_TICKS(500));
+        }
+    } else {
+        ESP_LOGW(TAG, "Power off: BQ25896 not detected; using deep sleep");
     }
 
     /* Fallback: on USB, no battery path, or BATFET failed -> deep sleep. */
