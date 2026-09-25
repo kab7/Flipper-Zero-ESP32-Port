@@ -52,14 +52,29 @@ the `otadata` selector after flashing so Flipper boots first; it does not erase
 NVS or the SD card. `--skip-bruce` updates Flipper without touching Bruce's
 slot. For the first dual-boot installation, build and flash both.
 
-## Power-off test
+## Experimental battery modes
 
-The upstream post-v2.0 firmware added **Settings → Power → Off Mode**. Select
-**Power Off** to disconnect the battery from the system rail through BQ25896
-ship mode. **Deep Sleep** remains available and uses the ESP32 sleep state.
-To compare with the previous 20%-per-day loss, record battery percentage,
-voltage, and remaining mAh before and after 24 hours in each mode.
+**Power Off** uses the BQ25896 BATFET ship mode. On the tested T-Embed variant
+without external antennas, the board could only be woken by reconnecting USB;
+the normal buttons did not wake it. Do not choose this mode if button wake is
+required. This hardware-dependent behaviour is not fixed by firmware.
 
-The power-mode changes have not yet been verified on a physical T-Embed. In ship
-mode, a USB connection may be required to wake the board if its button is not
-wired to the charger's `/QON` input.
+**Deep Sleep** should wake from the encoder/BOOT button. The current test build
+holds the CC1101/LED supply and LCD backlight OFF during sleep and enables an
+RTC pull-up on the wake button. BLE is unavailable in this mode. Battery drain
+on physical hardware has not yet been measured with these changes.
+
+With the screen off and USB disconnected, the running firmware now permits
+automatic **Light Sleep** while keeping BLE available. The input service
+checks VBUS once per second instead of every 4 ms, and the BLE controller may
+sleep between radio events. The stock companion's IR/Sub-GHz controls use the
+existing RPC connection; a Sub-GHz one-tap command is now handled as a single
+transmission (subject to the existing regional transmit restrictions).
+
+After an unplugged idle period, reconnect USB without rebooting and run
+`power sleep` in the Flipper CLI. It reports actual light-sleep entries and
+accumulated time since boot. Use `power diag` after waking from Deep Sleep to
+see the previous shutdown path and wake cause. For a battery comparison,
+record percentage, battery voltage and remaining mAh before and after 24 hours.
+These counters and battery readings are diagnostic; they do not replace a
+direct current measurement for finding board-level leakage.
