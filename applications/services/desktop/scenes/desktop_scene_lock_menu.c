@@ -6,6 +6,8 @@
 #include <esp_partition.h>
 #include <esp_ota_ops.h>
 #include <esp_app_desc.h>
+#include <bootloader_common.h>
+#include <stdint.h>
 
 #include "../desktop_i.h"
 #include "../views/desktop_view_lock_menu.h"
@@ -57,6 +59,57 @@ static const esp_partition_t* desktop_lock_menu_bruce_partition(void) {
     if(!partition) return NULL;
     esp_app_desc_t description;
     return esp_ota_get_partition_description(partition, &description) == ESP_OK ? partition : NULL;
+}
+
+/* IDF 5.4.1 verifies the *entire* target image in esp_ota_set_boot_partition().
+ * Bruce's large mapped segment can trip the interrupt watchdog while the GUI
+ * is running. Write only the OTA selection record here; the bootloader still
+ * verifies the image before loading it and falls back to ota_0 if it is bad.
+ * This mirrors esp_rewrite_ota_data() in IDF's esp_ota_ops.c. */
+static esp_err_t desktop_lock_menu_select_bruce(const esp_partition_t* target) {
+    if(!target || target->subtype != ESP_PARTITION_SUBTYPE_APP_OTA_1 ||
+       target->type != ESP_PARTITION_TYPE_APP) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const esp_partition_t* data = esp_partition_find_first(
+        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_OTA, NULL);
+    if(!data || data->size < 2 * data->erase_size) return ESP_ERR_NOT_FOUND;
+
+    const uint8_t count = esp_ota_get_app_partition_count();
+    if(count < 2) return ESP_ERR_INVALID_STATE;
+
+    esp_ota_select_entry_t entries[2];
+    for(size_t i = 0; i < 2; i++) {
+        esp_err_t result = esp_partition_read(
+            data, i * data->erase_size, &entries[i], sizeof(entries[i]));
+        if(result != ESP_OK) return result;
+    }
+
+    const int active = bootloader_common_get_active_otadata(entries);
+    const int next = active < 0 ? 0 : 1 - active;
+    const uint32_t wanted = 2; /* ota_1 -> (ota_seq - 1) % count == 1 */
+    uint32_t sequence = wanted;
+    if(active >= 0) {
+        const uint32_t previous = entries[active].ota_seq;
+        uint32_t advance = (wanted + count - (previous % count)) % count;
+        if(advance == 0) advance = count;
+        if(previous > UINT32_MAX - advance) return ESP_ERR_INVALID_STATE;
+        sequence = previous + advance;
+    }
+
+    entries[next].ota_seq = sequence;
+#ifdef CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
+    entries[next].ota_state = ESP_OTA_IMG_NEW;
+#else
+    entries[next].ota_state = ESP_OTA_IMG_UNDEFINED;
+#endif
+    entries[next].crc = bootloader_common_ota_select_crc(&entries[next]);
+    esp_err_t result =
+        esp_partition_erase_range(data, next * data->erase_size, data->erase_size);
+    if(result != ESP_OK) return result;
+    return esp_partition_write(
+        data, next * data->erase_size, &entries[next], sizeof(entries[next]));
 }
 
 /* Rebuild the menu from the live toggle states (used on enter and after a
@@ -162,7 +215,7 @@ bool desktop_scene_lock_menu_on_event(void* context, SceneManagerEvent event) {
             if(!bruce) {
                 FURI_LOG_E("DesktopBruce", "Bruce image is missing or invalid");
             } else {
-                esp_err_t result = esp_ota_set_boot_partition(bruce);
+                esp_err_t result = desktop_lock_menu_select_bruce(bruce);
                 if(result == ESP_OK) {
                     furi_hal_power_reset();
                 } else {

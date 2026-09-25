@@ -28,7 +28,7 @@ new file mode 100644
 index 00000000..8ac06cfd
 --- /dev/null
 +++ b/src/core/menu_items/FlipperOsMenu.cpp
-@@ -0,0 +1,53 @@
+@@ -0,0 +1,105 @@
 +// --- Multi-boot add-on (not part of upstream Bruce) ---------------------------
 +// "Flipper Zero" main-menu entry: reboots into the Flipper Zero firmware that
 +// lives in the ota_0 partition (this firmware lives in ota_1). Created by
@@ -40,9 +40,59 @@ index 00000000..8ac06cfd
 +
 +#include <esp_ota_ops.h>
 +#include <esp_partition.h>
++#include <esp_app_desc.h>
++#include <bootloader_common.h>
++#include <stdint.h>
 +
 +// The Flipper Zero port is flashed into the ota_0 slot.
 +#define FLIPPEROS_TARGET_SUBTYPE ESP_PARTITION_SUBTYPE_APP_OTA_0
++
++// IDF 5.x validates the whole image in esp_ota_set_boot_partition(), which
++// can trip the interrupt watchdog during a menu action. The bootloader will
++// validate the selected image on reboot. Mirror IDF's esp_rewrite_ota_data().
++static esp_err_t selectFlipperBootPartition(const esp_partition_t *target) {
++    if (target == NULL || target->type != ESP_PARTITION_TYPE_APP ||
++        target->subtype != FLIPPEROS_TARGET_SUBTYPE) return ESP_ERR_INVALID_ARG;
++
++    const esp_partition_t *data = esp_partition_find_first(
++        ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_OTA, NULL);
++    if (data == NULL || data->size < 2 * data->erase_size) return ESP_ERR_NOT_FOUND;
++
++    const uint8_t count = esp_ota_get_app_partition_count();
++    if (count < 2) return ESP_ERR_INVALID_STATE;
++
++    esp_ota_select_entry_t entries[2];
++    for (size_t i = 0; i < 2; i++) {
++        esp_err_t result = esp_partition_read(
++            data, i * data->erase_size, &entries[i], sizeof(entries[i]));
++        if (result != ESP_OK) return result;
++    }
++
++    const int active = bootloader_common_get_active_otadata(entries);
++    const int next = active < 0 ? 0 : 1 - active;
++    const uint32_t wanted = 1; // ota_0 -> (ota_seq - 1) % count == 0
++    uint32_t sequence = wanted;
++    if (active >= 0) {
++        const uint32_t previous = entries[active].ota_seq;
++        uint32_t advance = (wanted + count - (previous % count)) % count;
++        if (advance == 0) advance = count;
++        if (previous > UINT32_MAX - advance) return ESP_ERR_INVALID_STATE;
++        sequence = previous + advance;
++    }
++
++    entries[next].ota_seq = sequence;
++#ifdef CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
++    entries[next].ota_state = ESP_OTA_IMG_NEW;
++#else
++    entries[next].ota_state = ESP_OTA_IMG_UNDEFINED;
++#endif
++    entries[next].crc = bootloader_common_ota_select_crc(&entries[next]);
++    esp_err_t result = esp_partition_erase_range(
++        data, next * data->erase_size, data->erase_size);
++    if (result != ESP_OK) return result;
++    return esp_partition_write(
++        data, next * data->erase_size, &entries[next], sizeof(entries[next]));
++}
 +
 +static void rebootToFlipperOs(void) {
 +    const esp_partition_t *target =
@@ -51,7 +101,9 @@ index 00000000..8ac06cfd
 +        displayError("No ota_0 partition.\nNot a multi-boot image.", true);
 +        return;
 +    }
-+    if (esp_ota_set_boot_partition(target) != ESP_OK) {
++    esp_app_desc_t description;
++    if (esp_ota_get_partition_description(target, &description) != ESP_OK ||
++        selectFlipperBootPartition(target) != ESP_OK) {
 +        displayError("Could not select\nthe Flipper partition.", true);
 +        return;
 +    }
