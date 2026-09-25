@@ -69,7 +69,10 @@ automatic **Light Sleep** while keeping BLE available. The input service
 checks VBUS once per second instead of every 4 ms, and the BLE controller may
 sleep between radio events. The stock companion's IR/Sub-GHz controls use the
 existing RPC connection; a Sub-GHz one-tap command is now handled as a single
-transmission (subject to the existing regional transmit restrictions).
+transmission (subject to the existing regional transmit restrictions). Loaded
+IR/Sub-GHz remotes can return to Light Sleep between commands after the
+display timeout; their active radio operations still hold the necessary PM
+locks.
 
 After an unplugged idle period, reconnect USB without rebooting and run
 `power sleep` in the Flipper CLI. It reports actual light-sleep entries and
