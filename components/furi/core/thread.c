@@ -15,6 +15,7 @@
 #include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
 #include <stdint.h>
+#include <string.h>
 #include <freertos/task.h>
 #include <esp_rom_sys.h>
 
@@ -213,6 +214,15 @@ void furi_thread_scrub(void) {
    the very scarce internal DRAM, falling back to internal if PSRAM is full.
    Revert this (internal-first) if flash-write crashes reappear. */
 static StackType_t* furi_thread_alloc_stack(const char* name, uint32_t stack_size) {
+    /* ESP-IDF isolates held GPIOs before deep sleep using the calling task's
+     * stack. That stack must be internal RAM. PowerSrv is the only service
+     * that enters deep sleep; keep its small stack internal even with PSRAM. */
+    if(name && strcmp(name, "PowerSrv") == 0) {
+        StackType_t* buffer = heap_caps_malloc(stack_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        furi_check(buffer);
+        return buffer;
+    }
+
     StackType_t* buffer = heap_caps_malloc(stack_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if(!buffer) {
         buffer = heap_caps_malloc(stack_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);

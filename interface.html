@@ -1,38 +1,25 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
-    <title>Flipper Zero - ESP32 Port Flash Tool</title>
+    <title>Flipper + Bruce — LilyGO T-Embed CC1101</title>
     <script type="module">
         import { ESPLoader, Transport } from 'https://unpkg.com/esptool-js@0.5.4/bundle.js';
 
-        const BOARDS = {
-            't-embed': {
-                name: 'LilyGo T-Embed CC1101',
-                chip: 'ESP32-S3',
-                flashSize: '16MB',
-                // Single-app image: factory app at 0x10000 (partitions_singleapp_16mb.csv).
-                parts: [
-                    { path: 'release/t-embed/latest/bootloader.bin', offset: 0x0 },
-                    { path: 'release/t-embed/latest/partition-table.bin', offset: 0x8000 },
-                    { path: 'release/t-embed/latest/furi_esp32.bin', offset: 0x10000 },
-                ],
-            },
-            'waveshare-c6': {
-                name: 'Waveshare ESP32-C6-LCD-1.9',
-                chip: 'ESP32-C6',
-                flashSize: '8MB',
-                parts: [
-                    { path: 'release/waveshare_c6_1.9/latest/bootloader.bin', offset: 0x0 },
-                    { path: 'release/waveshare_c6_1.9/latest/partition-table.bin', offset: 0x8000 },
-                    { path: 'release/waveshare_c6_1.9/latest/furi_esp32.bin', offset: 0x10000 },
-                ],
-            },
+        // This is the 16 MB dual-boot layout, not the upstream single-app image.
+        const DEVICE = {
+            flashSize: '16MB',
+            parts: [
+                { path: 'firmware/bootloader.bin', offset: 0x000000, limit: 0x8000 },
+                { path: 'firmware/partition-table.bin', offset: 0x008000, limit: 0x1000 },
+                { path: 'firmware/furi_esp32.bin', offset: 0x010000, limit: 0x5F0000 },
+                { path: 'firmware/bruce.bin', offset: 0x600000, limit: 0x5F0000 },
+                { path: 'firmware/otadata-empty.bin', offset: 0xBF0000, limit: 0x2000 },
+            ],
         };
 
-        let selectedBoard = null;
         let port = null;
         let transport = null;
 
@@ -53,19 +40,6 @@
             }
         }
 
-        function selectBoard(key) {
-            selectedBoard = BOARDS[key];
-            setError(null);
-
-            document.querySelectorAll('.board-card').forEach(c => c.classList.remove('selected'));
-            $('board-' + key).classList.add('selected');
-
-            $('connect-info').textContent = `Connect your ${selectedBoard.name} via USB to get started.`;
-            // $('connect-chip').innerHTML = `${selectedBoard.chip} &bull; USB-C &bull; WebSerial`;
-            $('connect-btn').disabled = false;
-            showScreen('screen-connect');
-        }
-
         function setConnectState(state) {
             const btn = $('connect-btn');
             const spinner = $('connect-spinner');
@@ -73,16 +47,18 @@
 
             if (state === 'waiting') {
                 btn.disabled = true;
+                btn.classList.remove('flash-ready');
                 spinner.style.display = 'inline-block';
-                btnText.textContent = 'Waiting for device...';
+                btnText.textContent = 'Ожидание устройства...';
             } else if (state === 'select') {
                 btn.disabled = false;
+                btn.classList.remove('flash-ready');
                 spinner.style.display = 'none';
-                btnText.textContent = 'Select device';
+                btnText.textContent = 'Выбрать устройство';
             } else if (state === 'connected') {
                 btn.disabled = false;
                 spinner.style.display = 'none';
-                btnText.textContent = 'Flash now';
+                btnText.textContent = 'Прошить Flipper + Bruce';
                 btn.classList.add('flash-ready');
             }
         }
@@ -108,18 +84,18 @@
                 if (e.name === 'NotFoundError') {
                     setConnectState('select');
                 } else {
-                    setError('Connection failed: ' + e.message);
+                    setError('Не удалось подключиться: ' + e.message);
                     setConnectState('select');
                 }
             }
         }
 
         async function startFlash() {
+            if (!window.confirm('Будут перезаписаны Flipper, Bruce, загрузчик и таблица разделов. Указатель активной прошивки сбросится на Flipper. Продолжить?')) return;
             showScreen('screen-flash');
             const progress = $('progress-bar');
             const progressText = $('progress-text');
-            const board = selectedBoard;
-            const parts = board.parts;
+            const parts = DEVICE.parts;
 
             try {
                 const esploader = new ESPLoader({
@@ -133,28 +109,44 @@
                     },
                 });
 
-                progressText.textContent = 'Connecting to bootloader...';
-                await esploader.main();
+                progressText.textContent = 'Подключение к загрузчику...';
+                const chipName = await esploader.main();
+                if (!chipName.includes('ESP32-S3')) {
+                    throw new Error(`Ожидался ESP32-S3, подключён ${chipName}`);
+                }
                 await esploader.flashId();
 
                 const fileArray = [];
                 let totalSize = 0;
 
                 for (const part of parts) {
-                    progressText.textContent = `Loading ${part.path.split('/').pop()}...`;
+                    progressText.textContent = `Загрузка ${part.path.split('/').pop()}...`;
                     const resp = await fetch(part.path);
-                    if (!resp.ok) throw new Error(`Failed to load ${part.path}: ${resp.status}`);
+                    if (!resp.ok) throw new Error(`Не удалось загрузить ${part.path}: ${resp.status}`);
                     const data = await resp.arrayBuffer();
                     const bytes = new Uint8Array(data);
+                    if (!bytes.length || bytes.length > part.limit) {
+                        throw new Error(`Неверный размер ${part.path}`);
+                    }
+                    if ([0x000000, 0x010000, 0x600000].includes(part.offset) && bytes[0] !== 0xE9) {
+                        throw new Error(`Неверный ESP-образ ${part.path}`);
+                    }
+                    if (part.offset === 0x008000 && (bytes[0] !== 0xAA || bytes[1] !== 0x50)) {
+                        throw new Error('Неверная таблица разделов');
+                    }
+                    if (part.offset === 0xBF0000 &&
+                        (bytes.length !== 0x2000 || !bytes.every(value => value === 0xFF))) {
+                        throw new Error('Неверный файл выбора загрузки');
+                    }
                     fileArray.push({ data: binaryToStr(bytes), address: part.offset });
                     totalSize += bytes.length;
                 }
 
-                progressText.textContent = `Flashing ${(totalSize / 1024 / 1024).toFixed(1)} MB...`;
+                progressText.textContent = `Запись ${(totalSize / 1024 / 1024).toFixed(1)} МБ...`;
 
                 await esploader.writeFlash({
                     fileArray,
-                    flashSize: board.flashSize,
+                    flashSize: DEVICE.flashSize,
                     flashMode: 'dio',
                     flashFreq: '80m',
                     eraseAll: false,
@@ -162,23 +154,26 @@
                     reportProgress: (idx, written, total) => {
                         const pct = Math.round((written / total) * 100);
                         progress.style.width = pct + '%';
-                        progressText.textContent = `Flashing part ${idx + 1}/${parts.length}... ${pct}%`;
+                        progressText.textContent = `Запись части ${idx + 1}/${parts.length}... ${pct}%`;
                     },
                 });
 
-                progressText.textContent = 'Resetting device...';
+                progressText.textContent = 'Перезагрузка устройства...';
                 await transport.setDTR(false);
                 await transport.setRTS(true);
                 await new Promise(r => setTimeout(r, 100));
                 await transport.setRTS(false);
                 await new Promise(r => setTimeout(r, 100));
+                // Native USB may disappear during reset; the flash itself succeeded.
+                try { await transport.disconnect(); } catch (_) {}
 
                 showScreen('screen-success');
 
             } catch (e) {
                 console.error('Flash error:', e);
-                setError('Flash failed: ' + e.message);
+                setError('Ошибка прошивки: ' + e.message);
                 setConnectState('select');
+                try { await transport?.disconnect(); } catch (_) {}
                 port = null;
                 transport = null;
                 showScreen('screen-connect');
@@ -191,27 +186,11 @@
             return str;
         }
 
-        function goBack() {
-            setError(null);
-            port = null;
-            transport = null;
-            selectedBoard = null;
-            const btn = $('connect-btn');
-            btn.classList.remove('flash-ready');
-            btn.disabled = true;
-            setConnectState('select');
-            showScreen('screen-board');
-        }
-
         window.handleConnect = handleConnect;
-        window.selectBoard = selectBoard;
-        window.goBack = goBack;
 
-        // Check WebSerial support. Only the flashable boards (those with an
-        // onclick handler) get disabled — external links stay clickable.
-        if (!('serial' in navigator)) {
-            document.querySelectorAll('.board-card[onclick]').forEach(c => c.style.pointerEvents = 'none');
-            setError('Use Google Chrome or Edge on desktop to flash.');
+        if (!window.isSecureContext || !('serial' in navigator)) {
+            $('connect-btn').disabled = true;
+            setError('Для прошивки откройте эту страницу по HTTPS в Chrome или Edge на компьютере.');
         }
     </script>
     <style>
@@ -226,9 +205,8 @@
             align-items: center;
             justify-content: center;
             margin: 0;
-            height: 100vh;
-            margin: 0;
-            overflow: hidden;
+            padding: 24px 0;
+            overflow-x: hidden;
             background: black;
         }
 
@@ -236,7 +214,7 @@
             text-align: center;
             max-width: 480px;
             width: 100%;
-            padding: 40px 24px;
+            padding: 24px 24px 16px;
         }
         h1 {
             font-size: 2.2rem;
@@ -483,12 +461,16 @@
             font-weight: 500;
             opacity: 0.7;
         }
-        /* Discord button */
+        .release-link a {
+            color: #ff9f2e;
+            font-size: 0.9rem;
+        }
+        .release-link a:hover { color: #ffc273; }
+
+        /* Source link */
         .discord-btn {
-            position: fixed;
-            left: 50%;
-            bottom: 70px;
-            transform: translateX(-50%);
+            display: inline-block;
+            margin: 0 auto 24px;
             background: #ff8c00;
             color: #000;
             font-size: 0.9rem;
@@ -502,7 +484,7 @@
 
         .discord-btn:hover {
             background: #ff9f2e;
-            transform: translateX(-50%) scale(1.05);
+            transform: scale(1.05);
         }
 
         /* background element*/
@@ -558,91 +540,62 @@
 <!-- End of Night Background Element -->
 
 <div class="container">
-    <h1>Flipper Zero</h1>
-    <p class="subtitle">ESP-32 Port</p>
+    <h1>Flipper + Bruce</h1>
+    <p class="subtitle">LilyGO T-Embed CC1101 · ESP32-S3 · 16 МБ</p>
 
     <div id="error-banner"></div>
 
-    <!-- Screen 0: Board selection -->
-    <div id="screen-board" class="screen active">
-        <p class="board-heading">Select your board</p>
-        <div class="board-cards">
-            <div id="board-t-embed" class="board-card" onclick="selectBoard('t-embed')">
-                <div class="board-icon">&#9881;</div>
-                <div class="board-info">
-                    <h3>LilyGo T-Embed CC1101 & Plus</h3>
-                    <p>Sub-GHz &bull; NRF &bull; Wifi &bull; BLE &bull; NFC &bull; IR &bull; Audio &bull; FAP &bull; mJS</p>
-                </div>
-            </div>
-            <div id="board-waveshare-c6" class="board-card" onclick="selectBoard('waveshare-c6')">
-                <div class="board-icon">&#9881;</div>
-                <div class="board-info">
-                    <h3>Waveshare ESP32-C6-LCD-1.9</h3>
-                    <p>ESP32-C6 &bull; Wifi &bull; BLE &bull; Touch</p>
-                </div>
-            </div>
-            <a href="https://trollmaster419.github.io/" target="_blank" rel="noopener" class="board-card">
-                <div class="board-icon">&#9881;</div>
-                <div class="board-info">
-                    <h3>M5StickC Plus2</h3>
-                    <p>WIP</p>
-                </div>
-            </a>
-        </div>
-    </div>
-
-    <!-- Screen 1: Connect -->
-    <div id="screen-connect" class="screen">
+    <div id="screen-connect" class="screen active">
         <p id="connect-info" class="connect-text">
-            Connect your device via USB to get started.
+            Подключите T-Embed CC1101 по USB. Потребуется Chrome или Edge на компьютере.
         </p>
 
-        <button id="connect-btn" class="btn" disabled onclick="handleConnect()">
+        <button id="connect-btn" class="btn" onclick="handleConnect()">
             <span id="connect-spinner" class="spinner"></span>
-            <span id="connect-text">Select device</span>
+            <span id="connect-text">Выбрать устройство</span>
         </button>
 
-        <div id="connect-chip" class="chip"></div>
-
-        <br>
-        <button class="btn-back" onclick="goBack()">&larr; Change board</button>
+        <div class="info-box">
+            <h3>Предварительная версия</h3>
+            <p>Этот дуалбут пока не проверен на реальной плате. Прошивка заменит оба приложения и таблицу разделов, но не стирает всю память: NVS и файлы Bruce сохраняются. После установки первым загрузится Flipper.</p>
+            <p>Не устанавливайте обычное OTA-обновление Flipper поверх этого дуалбута.</p>
+        </div>
+        <p class="release-link"><a href="https://github.com/kab7/Flipper-Zero-ESP32-Port/releases/tag/v2.0.0-dualboot.1">Скачать файлы и контрольные суммы</a></p>
     </div>
 
-    <!-- Screen 2: Flashing -->
     <div id="screen-flash" class="screen">
-        <p class="flash-info">Uploading firmware to device...</p>
-        <p class="flash-warning">Do not disconnect the USB cable.</p>
+        <p class="flash-info">Прошивка устройства...</p>
+        <p class="flash-warning">Не отключайте USB-кабель до завершения.</p>
 
         <div class="progress-container">
             <div id="progress-bar" class="progress-fill"></div>
         </div>
-        <p id="progress-text">Preparing...</p>
+        <p id="progress-text">Подготовка...</p>
     </div>
 
-    <!-- Screen 3: Success -->
     <div id="screen-success" class="screen">
         <div class="success-icon">&#10003;</div>
-        <div class="success-text">Success!</div>
-        <p class="success-sub">Firmware flashed &mdash; your device is rebooting.</p>
+        <div class="success-text">Готово!</div>
+        <p class="success-sub">Flipper и Bruce записаны. Устройство перезагружается в Flipper.</p>
 
         <div class="info-box">
-            <h3>&#128190; One more step: set up the SD card</h3>
-            <p>This firmware needs a <strong>FAT32-formatted microSD card</strong> for apps, assets, IR libraries, dolphin animations and more.</p>
+            <h3>&#128190; Подготовьте SD-карту</h3>
+            <p>Для приложений и ресурсов понадобится microSD в формате FAT32:</p>
             <ol>
-                <li>Download <code>sdcard.zip</code> below</li>
-                <li>Extract <strong>its contents</strong> onto the root of the SD card</li>
-                <li>Insert the card into your device</li>
+                <li>Скачайте официальный <code>sdcard.zip</code></li>
+                <li>Распакуйте содержимое в корень карты</li>
+                <li>Вставьте карту в устройство</li>
             </ol>
         </div>
 
-        <a href="release/t-embed/latest/sdcard.zip" download class="cta-btn">
-            &#11015; Download sdcard.zip <span class="cta-size">~10 MB</span>
+        <a href="https://github.com/Sor3nt/Flipper-Zero-ESP32-Port/releases/download/v2.0.0/sdcard.zip" class="cta-btn">
+            &#11015; Скачать sdcard.zip
         </a>
     </div>
 </div>
 <center>
-    <a href="https://discord.gg/y7rdnHZHa6" target="_blank" class="discord-btn">
-        Join Discord
+    <a href="https://github.com/kab7/Flipper-Zero-ESP32-Port" target="_blank" rel="noopener" class="discord-btn">
+        Исходный код
     </a>
 </center>
 </body>

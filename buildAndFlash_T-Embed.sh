@@ -7,11 +7,15 @@ ESP32_DIR="${SCRIPT_DIR}"
 PORT="${ESPPORT:-}"
 RUN_MONITOR=0
 BUILD_ONLY=0
+SKIP_BRUCE=0
 EXPORT_SCRIPT="${ESP_IDF_EXPORT_SCRIPT:-${HOME}/esp/esp-idf/export.sh}"
 
 BOARD="lilygo_t_embed_cc1101"
 BUILD_DIR="build_t_embed"
 IDF_TARGET="esp32s3"
+SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.esp32s3;sdkconfig.defaults.lilygo_t_embed_cc1101"
+BRUCE_DIR="${ESP32_DIR}/multi-boot/bruce"
+BRUCE_BIN="${BRUCE_DIR}/.pio/build/lilygo-t-embed-cc1101/firmware.bin"
 
 detect_usbmodem_port() {
     local matches=()
@@ -40,14 +44,15 @@ detect_usbmodem_port() {
 
 usage() {
     cat <<EOF
-Usage: $(basename "$0") [--port <device>] [--monitor] [--build-only]
+Usage: $(basename "$0") [--port <device>] [--monitor] [--build-only] [--skip-bruce]
 
-Builds and flashes the ESP32 Flipper Zero port for the LilyGo T-Embed CC1101.
+Builds Flipper and Bruce for the LilyGo T-Embed CC1101 dual-boot layout.
 
 Options:
   --port <device>  Serial device to flash. Default: auto-detect /dev/cu.usbmodem* (macOS) or /dev/ttyACM* (Linux)
   --monitor        Open idf.py monitor after flashing
-  --build-only     Build the firmware, skip flashing
+  --build-only     Build both firmware images, skip flashing
+  --skip-bruce     Build/flash only Flipper; preserve the existing Bruce slot
 
 Environment:
   ESPPORT                  Overrides the auto-detected serial device
@@ -75,8 +80,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --skip-bruce)
-            # Bruce multi-boot support was removed; accept and ignore the flag
-            # so existing invocations / aliases keep working.
+            SKIP_BRUCE=1
             shift
             ;;
         --help|-h)
@@ -108,9 +112,30 @@ echo "Serial port:    ${PORT}"
 
 cd "${ESP32_DIR}"
 
-# Kill any process holding the serial port exclusively (e.g. a left-over
-# `idf.py monitor`, `screen`, `pyserial`). Without this the flash fails with
-# "Could not exclusively lock port [...] Resource temporarily unavailable".
+if [[ "${SKIP_BRUCE}" -eq 0 ]]; then
+    python3 tools/prepare_bruce.py
+    PIO_BIN="$(command -v pio || command -v platformio || true)"
+    if [[ -z "${PIO_BIN}" && -x "${HOME}/.platformio/penv/bin/pio" ]]; then
+        PIO_BIN="${HOME}/.platformio/penv/bin/pio"
+    fi
+    if [[ -z "${PIO_BIN}" ]]; then
+        echo "PlatformIO is required to build Bruce" >&2
+        exit 1
+    fi
+    export PATH="$(dirname "${PIO_BIN}"):${PATH}"
+    "${PIO_BIN}" run -d "${BRUCE_DIR}" -e lilygo-t-embed-cc1101
+    if [[ ! -f "${BRUCE_BIN}" ]]; then
+        echo "Bruce build did not produce ${BRUCE_BIN}" >&2
+        exit 1
+    fi
+    BRUCE_SIZE="$(stat -f%z "${BRUCE_BIN}" 2>/dev/null || stat -c%s "${BRUCE_BIN}")"
+    if (( BRUCE_SIZE > 0x5F0000 )); then
+        echo "Bruce image (${BRUCE_SIZE} bytes) exceeds its 0x5F0000-byte slot" >&2
+        exit 1
+    fi
+fi
+
+# Refuse to interrupt another process using the selected serial port.
 release_serial_port() {
     local port="$1"
     [[ -z "${port}" || ! -e "${port}" ]] && return 0
@@ -118,10 +143,8 @@ release_serial_port() {
     local pids
     pids="$(lsof -t "${port}" 2>/dev/null || true)"
     if [[ -n "${pids}" ]]; then
-        echo "Releasing serial port ${port} from PID(s): ${pids}" >&2
-        # shellcheck disable=SC2086
-        kill -9 ${pids} 2>/dev/null || true
-        sleep 0.3
+        echo "Serial port ${port} is in use by PID(s): ${pids}" >&2
+        return 1
     fi
 }
 
@@ -137,20 +160,32 @@ source "${EXPORT_SCRIPT}"
 
 cd "${ESP32_DIR}"
 
-# Set target if build dir doesn't exist yet or target changed
-if [[ ! -f "${BUILD_DIR}/build.ninja" ]]; then
-    echo "Setting IDF target to ${IDF_TARGET}..."
-    idf.py -B "${BUILD_DIR}" set-target "${IDF_TARGET}"
+# Set target again when an older single-app/dual-OTA sdkconfig is still present.
+if [[ ! -f "${BUILD_DIR}/build.ninja" || ! -f sdkconfig ]] || \
+   ! grep -q '^CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_multiboot.csv"$' sdkconfig; then
+    echo "Configuring ${IDF_TARGET} with the Bruce partition table..."
+    idf.py -B "${BUILD_DIR}" -DSDKCONFIG_DEFAULTS="${SDKCONFIG_DEFAULTS}" set-target "${IDF_TARGET}"
 fi
 
 if [[ "${BUILD_ONLY}" -eq 1 ]]; then
-    idf.py -B "${BUILD_DIR}" -DFLIPPER_BOARD="${BOARD}" reconfigure build
+    idf.py -B "${BUILD_DIR}" -DFLIPPER_BOARD="${BOARD}" \
+        -DSDKCONFIG_DEFAULTS="${SDKCONFIG_DEFAULTS}" reconfigure build
     echo
     echo "Build complete (--build-only). Nothing flashed."
     exit 0
 fi
 
-idf.py -B "${BUILD_DIR}" -DFLIPPER_BOARD="${BOARD}" -p "${PORT}" reconfigure build flash
+idf.py -B "${BUILD_DIR}" -DFLIPPER_BOARD="${BOARD}" \
+    -DSDKCONFIG_DEFAULTS="${SDKCONFIG_DEFAULTS}" -p "${PORT}" reconfigure build flash
+
+if [[ "${SKIP_BRUCE}" -eq 0 ]]; then
+    # ota_1 contains Bruce; erase otadata last to select Flipper's ota_0 as
+    # the default even when the previous v2.0 firmware was running from ota_1.
+    esptool.py --chip "${IDF_TARGET}" -p "${PORT}" --before default_reset --after no_reset \
+        write_flash --flash_size detect 0x600000 "${BRUCE_BIN}"
+    esptool.py --chip "${IDF_TARGET}" -p "${PORT}" --before default_reset --after hard_reset \
+        erase_region 0xBF0000 0x2000
+fi
 
 if [[ "${RUN_MONITOR}" -eq 1 ]]; then
     release_serial_port "${PORT}"

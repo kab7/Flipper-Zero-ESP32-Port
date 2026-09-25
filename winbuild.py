@@ -56,7 +56,8 @@ def _board_cmake_args(flipper_board: str, build_dir: str) -> str:
     args = f"-B {build_dir} -DFLIPPER_BOARD={flipper_board}"
     board_defaults = REPO_ROOT / f"sdkconfig.defaults.{flipper_board}"
     if board_defaults.exists():
-        args += f' -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.{flipper_board}"'
+        target_defaults = ";sdkconfig.defaults.esp32s3" if flipper_board == "lilygo_t_embed_cc1101" else ""
+        args += f' -DSDKCONFIG_DEFAULTS="sdkconfig.defaults{target_defaults};sdkconfig.defaults.{flipper_board}"'
     return args
 
 

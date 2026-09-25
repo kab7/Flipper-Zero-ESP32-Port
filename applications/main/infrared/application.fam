@@ -3,6 +3,9 @@ App(
     name="Infrared",
     apptype=FlipperAppType.MENUEXTERNAL,
     entry_point="infrared_app",
+    # RMT holds the required PM lock during TX/RX. Let a loaded RPC remote
+    # return to light sleep between commands after the display times out.
+    flags=["InsomniaSafe"],
     targets=["f32"],
     icon="A_Infrared_14",
     stack_size=8 * 1024,

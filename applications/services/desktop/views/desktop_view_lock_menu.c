@@ -11,8 +11,8 @@
 //   qFlipper       Enable/Disable (background RPC bridge)   [USB-OTG only]
 //   USB-Storage    open the full-screen mass-storage scene  [USB-OTG only]
 //   Bluetooth      Enable/Disable
-//   Mesh: Off/Master/Client    cycle the mesh role
-//   Mesh Clients   open the discovery/pairing scene          [Master only]
+//   Bruce          boot the second firmware                  [dual-boot only]
+//   Mesh Clients   open the discovery/pairing scene
 
 typedef struct {
     const char* label;
@@ -35,7 +35,12 @@ static void lock_menu_scroll_to(uint8_t idx) {
     }
 }
 
-static void lock_menu_build_items(bool usb_available, bool qflipper_on, bool bt_on, bool wifi_on) {
+static void lock_menu_build_items(
+    bool usb_available,
+    bool qflipper_on,
+    bool bt_on,
+    bool wifi_on,
+    bool bruce_available) {
     s_item_count = 0;
 
     s_items[s_item_count++] = (LockMenuItem){
@@ -55,6 +60,10 @@ static void lock_menu_build_items(bool usb_available, bool qflipper_on, bool bt_
     /* Web-Filesystem: SoftAP + HTTP file server for the SD; board-independent
      * (WiFi is on every target). */
     s_items[s_item_count++] = (LockMenuItem){"Web-Filesystem", DesktopLockMenuEventWebFs};
+
+    if(bruce_available) {
+        s_items[s_item_count++] = (LockMenuItem){"Switch to Bruce", DesktopLockMenuEventBruce};
+    }
 
     /* Mesh: der T-Embed ist immer Master — kein Mode-Toggle, "Mesh Clients"
      * (Discovery/Pair) ist immer verfügbar. */
@@ -82,8 +91,9 @@ void desktop_lock_menu_set_states(
     bool usb_available,
     bool qflipper_on,
     bool bt_on,
-    bool wifi_on) {
-    lock_menu_build_items(usb_available, qflipper_on, bt_on, wifi_on);
+    bool wifi_on,
+    bool bruce_available) {
+    lock_menu_build_items(usb_available, qflipper_on, bt_on, wifi_on, bruce_available);
     /* Index nicht resetten — Caller (refresh nach Toggle) erwartet, dass die
      * Selektion stehen bleibt; bei out-of-range clampen wir, damit der Wechsel
      * vom Master- in den Off-Modus (verliert "Mesh Clients") nicht ins Leere
@@ -185,7 +195,7 @@ DesktopLockMenuView* desktop_lock_menu_alloc(void) {
     view_set_input_callback(lock_menu->view, desktop_lock_menu_input_callback);
 
     // Default until the scene fills in real states on enter.
-    lock_menu_build_items(false, false, false, false);
+    lock_menu_build_items(false, false, false, false, false);
 
     return lock_menu;
 }

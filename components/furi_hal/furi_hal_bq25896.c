@@ -249,15 +249,19 @@ bool furi_hal_bq25896_is_vbus_present(void) {
     return ((reg0b >> 5) & 0x07) != 0;
 }
 
-void furi_hal_bq25896_poweroff(void) {
-    if(!bq25896_present) return;
+bool furi_hal_bq25896_poweroff(void) {
+    if(!bq25896_present) return false;
     /* Ship mode: force BATFET off (REG09 bit 5 = BATFET_DIS) to physically
      * disconnect the battery from the system rail. Real power-off (0 draw),
      * not deep sleep. Wakes only via a fresh USB plug or the /QON button.
      * Note: with VBUS present the charger keeps SYS powered anyway, so callers
      * must gate this on battery-only operation (see furi_hal_bq25896_is_vbus_present). */
     uint8_t reg09 = 0;
-    bq25896_read_reg(REG09, &reg09);
+    bool read_ok = bq25896_read_reg(REG09, &reg09);
     reg09 |= 0x20; /* BATFET_DIS */
-    bq25896_write_reg(REG09, reg09);
+    bool write_ok = bq25896_write_reg(REG09, reg09);
+    if(!read_ok || !write_ok) {
+        ESP_LOGW(TAG, "Ship mode I2C failed: read=%d write=%d", read_ok, write_ok);
+    }
+    return read_ok && write_ok;
 }

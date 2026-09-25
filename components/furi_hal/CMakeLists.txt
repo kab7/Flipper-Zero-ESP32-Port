@@ -26,6 +26,7 @@ set(FURI_HAL_SRCS
     "furi_hal_resources.c"
     "furi_hal_usb.c"
     "furi_hal_usb_cdc.c"
+    "furi_hal_usb_tinyusb_composite.c"
     "furi_hal_light.c"
     "furi_hal_vibro.c"
     "furi_hal_speaker.c"
@@ -62,7 +63,6 @@ set(FURI_HAL_REQUIRES
 if(IDF_TARGET STREQUAL "esp32s3" OR IDF_TARGET STREQUAL "esp32s2")
     list(APPEND FURI_HAL_SRCS
         "furi_hal_usb_hid_tinyusb.c"
-        "furi_hal_usb_tinyusb_composite.c"
         "furi_hal_usb_msc.c"
     )
     list(APPEND FURI_HAL_REQUIRES espressif__esp_tinyusb)

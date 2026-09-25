@@ -1,0 +1,4 @@
+# T-Embed fork: ota_0 is Flipper and ota_1 is reserved for Bruce.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_multiboot.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions_multiboot.csv"
