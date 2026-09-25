@@ -86,6 +86,25 @@ static void power_cli_diag(void) {
     printf("(-1 means the step was not reached.)\r\n");
 }
 
+static void power_cli_sleep(void) {
+#if CONFIG_PM_LIGHT_SLEEP_CALLBACKS
+    FuriHalPowerLightSleepStats stats;
+    furi_hal_power_get_light_sleep_stats(&stats);
+    printf(
+        "Light sleep: allowed=%d, entries=%lu, total=%llu ms\r\n",
+        stats.allowed,
+        (unsigned long)stats.sleep_count,
+        (unsigned long long)(stats.total_sleep_us / 1000ULL));
+    printf(
+        "Wake causes: timer=%lu, GPIO=%lu, other=%lu\r\n",
+        (unsigned long)stats.wake_timer,
+        (unsigned long)stats.wake_gpio,
+        (unsigned long)stats.wake_other);
+#else
+    printf("Light-sleep counters are disabled in this build.\r\n");
+#endif
+}
+
 void power_cli_off(PipeSide* pipe, FuriString* args) {
     UNUSED(pipe);
     UNUSED(args);
@@ -141,6 +160,7 @@ static void power_cli_command_print_usage(void) {
 
     printf("\toff\t - shutdown power\r\n");
     printf("\tdiag\t - show last shutdown and wake reason\r\n");
+    printf("\tsleep\t - show light-sleep counters since boot\r\n");
     printf("\treboot\t - reboot\r\n");
     printf("\treboot2dfu\t - reboot to dfu bootloader\r\n");
     printf("\t5v <0 or 1>\t - enable or disable 5v ext\r\n");
@@ -167,6 +187,11 @@ void power_cli(PipeSide* pipe, FuriString* args, void* context) {
 
         if(furi_string_cmp_str(cmd, "diag") == 0) {
             power_cli_diag();
+            break;
+        }
+
+        if(furi_string_cmp_str(cmd, "sleep") == 0) {
+            power_cli_sleep();
             break;
         }
 
