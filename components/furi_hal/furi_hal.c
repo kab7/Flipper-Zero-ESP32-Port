@@ -28,6 +28,16 @@ void furi_hal_init_early(void) {
     ESP_LOGI(TAG, "PWR_EN GPIO%d set HIGH", BOARD_PIN_PWR_EN);
 #endif
 
+#ifdef BOARD_PIN_SD_CS
+    /* RTC pad hold survives deep-sleep reset. Program deselected HIGH before
+     * releasing it, so the always-powered SD card sees no low CS glitch. */
+    if(BOARD_PIN_SD_CS < GPIO_NUM_MAX) {
+        gpio_set_direction((gpio_num_t)BOARD_PIN_SD_CS, GPIO_MODE_OUTPUT);
+        gpio_set_level((gpio_num_t)BOARD_PIN_SD_CS, 1);
+        gpio_hold_dis((gpio_num_t)BOARD_PIN_SD_CS);
+    }
+#endif
+
 #ifdef BOARD_PIN_NRF24_CSN
     /* T-Embed Plus shares SPI2 between CC1101 and NRF24. Drive NRF24 CSN HIGH
      * (deselected) and CE LOW (standby) at boot, before any CC1101 SPI traffic.

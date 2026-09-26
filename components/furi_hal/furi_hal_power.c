@@ -2,6 +2,8 @@
 #include "furi_hal_bq27220.h"
 #include "furi_hal_bq25896.h"
 #include "furi_hal_display.h"
+#include "furi_hal_nfc.h"
+#include "furi_hal_sd.h"
 #include "boards/board.h"
 
 #include <math.h>
@@ -624,6 +626,23 @@ static void furi_hal_power_prepare_shutdown(void) {
 #endif
     furi_hal_display_sleep();
 
+    /* Flush and detach the card before parking CS. The socket is fed by the
+     * always-on 3.3 V rail, so the card cannot be power-gated by PWR_EN. */
+#ifdef BOARD_PIN_SD_CS
+    if(!furi_hal_sd_unmount()) {
+        ESP_LOGW(TAG, "SD unmount failed before sleep");
+    }
+    if(BOARD_PIN_SD_CS < GPIO_NUM_MAX) {
+        gpio_set_direction((gpio_num_t)BOARD_PIN_SD_CS, GPIO_MODE_OUTPUT);
+        gpio_set_level((gpio_num_t)BOARD_PIN_SD_CS, 1);
+    }
+#endif
+
+#ifdef BOARD_PIN_NRF24_CE
+    /* CE LOW selects nRF24 standby before the ESP32 pads go to sleep. */
+    gpio_set_level((gpio_num_t)BOARD_PIN_NRF24_CE, 0);
+#endif
+
     /* Power down peripherals (CC1101 + WS2812) */
 #ifdef BOARD_PIN_PWR_EN
     gpio_set_level((gpio_num_t)BOARD_PIN_PWR_EN, 0);
@@ -667,8 +686,8 @@ static void furi_hal_power_enter_deep_sleep(void) {
         "Deep sleep: wake_config=%s BOOT_level=%ld",
         esp_err_to_name(wake_err),
         (long)power_shutdown_rtc_diag.report.button_level);
-    /* GPIO15 and GPIO21 are RTC IOs on the ESP32-S3. Hold only these pads LOW
-     * through deep sleep so the peripheral rail and backlight stay off. The
+    /* Hold the peripheral rail/backlight LOW and SD CS HIGH through deep
+     * sleep. GPIO13, GPIO15 and GPIO21 are RTC IOs on the ESP32-S3. The
      * global digital-GPIO hold also isolates every unrelated pad; it is not
      * required for RTC pad hold. */
 #if SOC_GPIO_SUPPORT_HOLD_IO_IN_DSLP && !SOC_GPIO_SUPPORT_HOLD_SINGLE_IO_IN_DSLP
@@ -686,6 +705,14 @@ static void furi_hal_power_enter_deep_sleep(void) {
         }
     }
 #endif
+#if defined(BOARD_PIN_SD_CS)
+    if(BOARD_PIN_SD_CS < GPIO_NUM_MAX) {
+        hold_err = rtc_gpio_hold_en((gpio_num_t)BOARD_PIN_SD_CS);
+        if(hold_err != ESP_OK) {
+            ESP_LOGW(TAG, "SD_CS hold failed: %s", esp_err_to_name(hold_err));
+        }
+    }
+#endif
 #endif
 #endif
     /* esp_pm_configure(light_sleep_enable=true) arms the RTC timer with zero
@@ -695,6 +722,14 @@ static void furi_hal_power_enter_deep_sleep(void) {
     esp_err_t timer_err = esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
     if(timer_err != ESP_OK && timer_err != ESP_ERR_INVALID_STATE) {
         ESP_LOGW(TAG, "Disable timer wake failed: %s", esp_err_to_name(timer_err));
+    }
+    /* This must be the last I2C operation before sleep: other devices share
+     * the bus and a later transaction could wake the PN532 again. */
+    FuriHalNfcError nfc_err = furi_hal_nfc_prepare_for_deep_sleep();
+    if(nfc_err != FuriHalNfcErrorNone) {
+        ESP_LOGW(TAG, "PN532 PowerDown failed: %d", nfc_err);
+    } else {
+        ESP_LOGI(TAG, "PN532 PowerDown sent");
     }
     power_shutdown_rtc_diag.report.stage = FuriHalPowerShutdownStageEnteringDeepSleep;
     esp_deep_sleep_start();

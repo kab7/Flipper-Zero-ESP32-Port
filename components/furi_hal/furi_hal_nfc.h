@@ -151,6 +151,12 @@ FuriHalNfcError furi_hal_nfc_low_power_mode_start(void);
  */
 FuriHalNfcError furi_hal_nfc_low_power_mode_stop(void);
 
+/** Put the PN532 itself into PowerDown before ESP32 deep sleep.
+ * Unlike low_power_mode_start(), this also stops the PN532 oscillator. I2C
+ * remains an enabled wake source so the next cold boot can initialise it.
+ */
+FuriHalNfcError furi_hal_nfc_prepare_for_deep_sleep(void);
+
 /**
  * @brief Configure the NFC HAL to work in a particular mode.
  *
