@@ -1,0 +1,11 @@
+# Name,     Type, SubType, Offset,    Size,      Flags
+# T-Embed CC1101, 16 MB. Preserve the current OTA layout's NVS, phy and app
+# offsets so migrating from v2.0 does not move settings. ota_0 is Flipper;
+# ota_1 is permanently reserved for Bruce. Never use normal Flipper OTA here.
+nvs,        data, nvs,     0x9000,    0x6000,
+phy_init,   data, phy,     0xf000,    0x1000,
+ota_0,      app,  ota_0,   0x10000,   0x5F0000,
+bruce,      app,  ota_1,   0x600000,  0x5F0000,
+otadata,    data, ota,     0xBF0000,  0x2000,
+coredump,   data, coredump, 0xBF2000, 0x20000,
+spiffs,     data, spiffs,  0xC20000,  0x3E0000,

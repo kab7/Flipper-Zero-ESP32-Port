@@ -55,7 +55,8 @@ static void fw_ota_trim(char* s) {
 }
 
 bool fw_ota_is_supported(void) {
-    return esp_ota_get_next_update_partition(NULL) != NULL;
+    const esp_partition_t* next = esp_ota_get_next_update_partition(NULL);
+    return next && strcmp(next->label, "bruce") != 0;
 }
 
 const char* fw_ota_running_partition_label(void) {
@@ -155,6 +156,10 @@ bool fw_ota_flash_file(
     const esp_partition_t* next = esp_ota_get_next_update_partition(NULL);
     if(!next) {
         fw_ota_set_err(err, err_size, "OTA not supported (no ota slot)");
+        return false;
+    }
+    if(strcmp(next->label, "bruce") == 0) {
+        fw_ota_set_err(err, err_size, "USB full flash required: OTA slot contains Bruce");
         return false;
     }
 

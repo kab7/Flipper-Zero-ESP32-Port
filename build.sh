@@ -125,7 +125,11 @@ fi
 # Check for board-specific sdkconfig defaults
 BOARD_DEFAULTS_OPTS=()
 if [[ -f "sdkconfig.defaults.${BOARD}" ]]; then
-    BOARD_DEFAULTS_OPTS=("-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.${BOARD}")
+    if [[ "${TARGET}" == "esp32s3" ]]; then
+        BOARD_DEFAULTS_OPTS=("-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.esp32s3;sdkconfig.defaults.${BOARD}")
+    else
+        BOARD_DEFAULTS_OPTS=("-DSDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.defaults.${BOARD}")
+    fi
 fi
 
 # Set target (creates/updates sdkconfig)

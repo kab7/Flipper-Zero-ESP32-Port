@@ -11,6 +11,7 @@
 #include <wlan_hal.h>
 #include <furi.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 #include <freertos/task.h>
 #include <string.h>
 #include <stdlib.h>
@@ -154,15 +155,40 @@ static void parse_response(const uint8_t* pkt, int len, uint32_t src_ip, ScanCtx
     }
 }
 
+typedef struct {
+    int netif_index;
+    ip4_addr_t ip;
+    uint8_t mac[6];
+    bool found;
+    SemaphoreHandle_t done;
+} ArpLookupCtx;
+
+/* lwIP's netif and ARP table must be accessed from the TCP/IP thread. */
+static void arp_lookup_cb(void* arg) {
+    ArpLookupCtx* ctx = arg;
+    struct netif* nif = netif_get_by_index((u8_t)ctx->netif_index);
+    struct eth_addr* eth = NULL;
+    const ip4_addr_t* ipr = NULL;
+
+    ctx->found = nif && etharp_find_addr(nif, &ctx->ip, &eth, &ipr) >= 0 && eth;
+    if(ctx->found) memcpy(ctx->mac, eth->addr, sizeof(ctx->mac));
+    xSemaphoreGive(ctx->done);
+}
+
 /* WiFi-MAC einer IP via ARP auflösen (für gezielten Deauth). */
 static bool resolve_mac(uint32_t ip_nbo, uint8_t out[6]) {
     esp_netif_t* sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
     if(!sta) return false;
-    struct netif* nif = (struct netif*)esp_netif_get_netif_impl(sta);
-    if(!nif) return false;
+    int netif_index = esp_netif_get_netif_impl_index(sta);
+    if(netif_index <= 0 || netif_index > 255) return false;
 
-    ip4_addr_t ip;
-    ip.addr = ip_nbo;
+    SemaphoreHandle_t done = xSemaphoreCreateBinary();
+    if(!done) return false;
+    ArpLookupCtx ctx = {
+        .netif_index = netif_index,
+        .ip.addr = ip_nbo,
+        .done = done,
+    };
 
     /* Traffic anstoßen, damit lwip die ARP-Auflösung startet. */
     int s = lwip_socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -177,24 +203,17 @@ static bool resolve_mac(uint32_t ip_nbo, uint8_t out[6]) {
     }
 
     for(int i = 0; i < 12; i++) {
-        struct eth_addr* eth = NULL;
-        const ip4_addr_t* ipr = NULL;
-#if LWIP_TCPIP_CORE_LOCKING
-        LOCK_TCPIP_CORE();
-#endif
-        int idx = etharp_find_addr(nif, &ip, &eth, &ipr);
-        bool got = (idx >= 0 && eth);
-        uint8_t tmp[6];
-        if(got) memcpy(tmp, eth->addr, 6);
-#if LWIP_TCPIP_CORE_LOCKING
-        UNLOCK_TCPIP_CORE();
-#endif
-        if(got) {
-            memcpy(out, tmp, 6);
+        ctx.found = false;
+        if(tcpip_callback(arp_lookup_cb, &ctx) != ERR_OK) break;
+        xSemaphoreTake(done, portMAX_DELAY);
+        if(ctx.found) {
+            memcpy(out, ctx.mac, sizeof(ctx.mac));
+            vSemaphoreDelete(done);
             return true;
         }
         vTaskDelay(pdMS_TO_TICKS(60));
     }
+    vSemaphoreDelete(done);
     return false;
 }
 

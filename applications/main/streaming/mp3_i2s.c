@@ -5,6 +5,8 @@
 #include <furi.h>
 #include <boards/board.h>
 
+#if BOARD_HAS_SPEAKER
+
 #include <driver/i2s_std.h>
 #include <driver/gpio.h>
 #include <esp_heap_caps.h>
@@ -244,3 +246,35 @@ bool mp3_i2s_has_pending(void) {
     furi_mutex_release(rb_mutex);
     return any;
 }
+
+#else /* !BOARD_HAS_SPEAKER */
+
+bool mp3_i2s_init(uint32_t sample_rate) {
+    (void)sample_rate;
+    return false;
+}
+
+void mp3_i2s_deinit(void) {}
+
+void mp3_i2s_set_sample_rate(uint32_t sample_rate) {
+    (void)sample_rate;
+}
+
+void mp3_i2s_set_volume(uint8_t volume) {
+    (void)volume;
+}
+
+size_t mp3_i2s_push(const int16_t* stereo_pcm, size_t n_frames, uint32_t timeout_ms) {
+    (void)stereo_pcm;
+    (void)n_frames;
+    (void)timeout_ms;
+    return 0;
+}
+
+void mp3_i2s_flush(void) {}
+
+bool mp3_i2s_has_pending(void) {
+    return false;
+}
+
+#endif /* BOARD_HAS_SPEAKER */

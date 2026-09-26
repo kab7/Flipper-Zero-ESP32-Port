@@ -3,18 +3,39 @@
 #include <furi_hal_gpio.h>
 #include <esp_log.h>
 #include <nvs_flash.h>
+#include <driver/gpio.h>
+#include <soc/soc_caps.h>
 
 static const char* TAG = "FuriHal";
 
 void furi_hal_init_early(void) {
     furi_hal_cortex_init_early();
 
+    /* The deep-sleep hold bit survives reset. Drop the global hold before
+     * reinitialising outputs; individual pin holds remain until released. */
+#if SOC_GPIO_SUPPORT_HOLD_IO_IN_DSLP && !SOC_GPIO_SUPPORT_HOLD_SINGLE_IO_IN_DSLP
+    gpio_deep_sleep_hold_dis();
+#endif
+
 #ifdef BOARD_PIN_PWR_EN
     /* Power-enable must be set early — powers CC1101, BQ27220 fuel gauge, WS2812 */
     static const GpioPin pwr_en = {.port = NULL, .pin = BOARD_PIN_PWR_EN};
     furi_hal_gpio_init_simple(&pwr_en, GpioModeOutputPushPull);
     furi_hal_gpio_write(&pwr_en, true);
+    /* Program the output HIGH while the deep-sleep latch still holds LOW,
+     * then release it without a low-going power glitch. */
+    gpio_hold_dis((gpio_num_t)BOARD_PIN_PWR_EN);
     ESP_LOGI(TAG, "PWR_EN GPIO%d set HIGH", BOARD_PIN_PWR_EN);
+#endif
+
+#ifdef BOARD_PIN_SD_CS
+    /* RTC pad hold survives deep-sleep reset. Program deselected HIGH before
+     * releasing it, so the always-powered SD card sees no low CS glitch. */
+    if(BOARD_PIN_SD_CS < GPIO_NUM_MAX) {
+        gpio_set_direction((gpio_num_t)BOARD_PIN_SD_CS, GPIO_MODE_OUTPUT);
+        gpio_set_level((gpio_num_t)BOARD_PIN_SD_CS, 1);
+        gpio_hold_dis((gpio_num_t)BOARD_PIN_SD_CS);
+    }
 #endif
 
 #ifdef BOARD_PIN_NRF24_CSN

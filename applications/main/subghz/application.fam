@@ -5,6 +5,9 @@ App(
     targets=["f32"],
     cdefines=["APP_SUBGHZ"],
     entry_point="subghz_app",
+    # The CC1101 receive path and RMT transmit path protect active radio
+    # operations; an idle RPC remote should not hold the CPU awake forever.
+    flags=["InsomniaSafe"],
     requires=[
         "gui",
         "cli",

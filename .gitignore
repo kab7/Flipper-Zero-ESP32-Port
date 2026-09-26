@@ -12,6 +12,7 @@ _flash_helper.py
 # Managed components are pulled by IDF component manager from idf_component.yml
 # + dependencies.lock; the source-of-truth is those two files.
 managed_components/
+multi-boot/bruce/
 
 # Local development snapshots and generated release artifacts
 .backups/

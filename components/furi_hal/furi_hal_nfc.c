@@ -459,6 +459,26 @@ FuriHalNfcError furi_hal_nfc_low_power_mode_stop(void) {
     return pn532_send_command(cmd, sizeof(cmd), NULL, NULL, 1000);
 }
 
+FuriHalNfcError furi_hal_nfc_prepare_for_deep_sleep(void) {
+    if(!nfc_hal_ready) return FuriHalNfcErrorNone;
+    if(furi_mutex_acquire(nfc_mutex, furi_ms_to_ticks(250)) != FuriStatusOk) {
+        return FuriHalNfcErrorBusy;
+    }
+
+    /* PN532 PowerDown, with only the I2C host interface allowed to wake it.
+     * RF-field wake would leave the NFC controller powered during standby. */
+    const uint8_t cmd[] = {PN532_CMD_POWERDOWN, 0x80};
+    uint8_t status = 0xFF;
+    size_t response_len = sizeof(status);
+    FuriHalNfcError err = pn532_send_command(cmd, sizeof(cmd), &status, &response_len, 500);
+    furi_mutex_release(nfc_mutex);
+    if(err == FuriHalNfcErrorNone && (response_len != 1 || status != 0)) {
+        err = FuriHalNfcErrorCommunication;
+    }
+    if(err == FuriHalNfcErrorNone) furi_delay_ms(2);
+    return err;
+}
+
 FuriHalNfcError furi_hal_nfc_set_mode(FuriHalNfcMode mode, FuriHalNfcTech tech) {
     if(!nfc_hal_ready) return FuriHalNfcErrorCommunication;
     /* Preserve cached target across set_mode() within the same tech.
@@ -1893,6 +1913,7 @@ FuriHalNfcError furi_hal_nfc_acquire(void) { return FuriHalNfcErrorCommunication
 FuriHalNfcError furi_hal_nfc_release(void) { return FuriHalNfcErrorNone; }
 FuriHalNfcError furi_hal_nfc_low_power_mode_start(void) { return FuriHalNfcErrorNone; }
 FuriHalNfcError furi_hal_nfc_low_power_mode_stop(void) { return FuriHalNfcErrorNone; }
+FuriHalNfcError furi_hal_nfc_prepare_for_deep_sleep(void) { return FuriHalNfcErrorNone; }
 
 FuriHalNfcError furi_hal_nfc_set_mode(FuriHalNfcMode mode, FuriHalNfcTech tech) {
     UNUSED(mode); UNUSED(tech); return FuriHalNfcErrorCommunication;

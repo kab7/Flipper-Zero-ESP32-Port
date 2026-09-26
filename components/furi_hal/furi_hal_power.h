@@ -34,6 +34,40 @@ void furi_hal_power_shutdown(void);
 void furi_hal_power_off(void);
 FURI_NORETURN void furi_hal_power_reset(void);
 
+/* Diagnostic snapshot from the boot following a shutdown attempt. Negative
+ * charger/VBUS/ship/button values mean that step was not reached. */
+typedef enum {
+    FuriHalPowerShutdownModeNone = 0,
+    FuriHalPowerShutdownModeDeepSleep = 1,
+    FuriHalPowerShutdownModePowerOff = 2,
+} FuriHalPowerShutdownMode;
+
+typedef enum {
+    FuriHalPowerShutdownStageNone = 0,
+    FuriHalPowerShutdownStageRequested = 1,
+    FuriHalPowerShutdownStagePrepared = 2,
+    FuriHalPowerShutdownStageChargerCheck = 3,
+    FuriHalPowerShutdownStageShipCommand = 4,
+    FuriHalPowerShutdownStageShipReturned = 5,
+    FuriHalPowerShutdownStageWakeConfigured = 6,
+    FuriHalPowerShutdownStageEnteringDeepSleep = 7,
+} FuriHalPowerShutdownStage;
+
+typedef struct {
+    bool has_previous_attempt;
+    uint32_t reset_reason;
+    uint32_t wakeup_cause;
+    FuriHalPowerShutdownMode mode;
+    FuriHalPowerShutdownStage stage;
+    int32_t button_level;
+    int32_t charger_present;
+    int32_t vbus_present;
+    int32_t ship_write_ok;
+    int32_t wake_config_error;
+} FuriHalPowerShutdownDiagnostics;
+
+void furi_hal_power_get_shutdown_diagnostics(FuriHalPowerShutdownDiagnostics* out);
+
 bool furi_hal_power_enable_otg(void);
 void furi_hal_power_disable_otg(void);
 bool furi_hal_power_check_otg_fault(void);
